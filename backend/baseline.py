@@ -110,7 +110,7 @@ def main(argv=None):
     summ = summary(metrics)
     meta = {"name": a.name, "type": "baseline_lda", "classes": classes, "kinds": kinds,
             "created": datetime.now().isoformat(timespec="seconds"), "sessions": [p.name for p in paths],
-            "thresholds": thr, "events": {k: cfg["events"][k] for k in ("ema_alpha", "k_on", "refractory_s")},
+            "thresholds": thr, "events": {k: cfg["events"][k] for k in ("ema_alpha", "k_on", "k_off", "refractory_s")},
             "rest_std": {d.id: d.rest_std.tolist() for d in data}, "val_metrics": summ,
             "val_detail": metrics}
     (out / "model.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")

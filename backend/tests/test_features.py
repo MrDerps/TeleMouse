@@ -69,6 +69,7 @@ def test_emg_stream_realigns_on_index_jump(cfg):
 
 def test_hand_hold_and_mask(cfg):
     h = HandStream(cfg, 640, 480)
+    h.lag = 0.0
     lm = np.random.default_rng(0).random((21, 3))
     h.push([1.00], lm[None])
     h.push([1.033], np.full((1, 21, 3), np.nan))

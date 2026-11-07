@@ -80,3 +80,23 @@ def test_event_metrics_matching():
     assert g["hold"]["tp"] == 1 and g["hold"]["recall"] == 1.0
     assert abs(m["fp_per_min"] - 1.0) < 1e-9
     assert abs(g["tap"]["latency_ms"] - 50) < 1e-6 and abs(g["hold"]["latency_ms"] - 100) < 1e-6
+
+
+def test_k_off_debounces_hold_flicker():
+    T = np.arange(200) * 0.02
+    P = _probs(200, [(2, 20, 120, 0.8)])
+    P[60:62, 2], P[60:62, 0] = 0.1, 0.9  # 2-frame dropout inside a hold
+    # without debounce the dropout splits one hold into two (the flicker seen live)
+    assert [e["kind"] for e in run_detector(T, P, _det(k_off=1))] == ["start", "end", "start", "end"]
+    assert [e["kind"] for e in run_detector(T, P, _det(k_off=3))] == ["start", "end"]
+    ev = run_detector(T, P, _det(k_off=3))
+    assert abs(ev[1]["t"] - T[122]) < 1e-9  # ends at the real end (+ debounce)
+
+
+def test_calib_std_ignores_movement(cfg):
+    from backend.serve.server import calib_std
+    rng = np.random.default_rng(0)
+    y = rng.normal(0, 6, (2000, 2))
+    y[500:1100] += rng.normal(0, 300, (600, 2))  # a 0.6 s burst inside a 2 s calibration
+    s = calib_std(y, cfg)
+    assert (s > 4).all() and (s < 9).all()

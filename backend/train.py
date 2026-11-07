@@ -142,7 +142,7 @@ def train(paths, gestures, name, cfg, warm_start=None, progress=None):
     out = model_dir(cfg, name)
     meta = {"name": name, "type": "tcn", "classes": classes, "kinds": kinds,
             "created": datetime.now().isoformat(timespec="seconds"), "sessions": [p.name for p in paths],
-            "thresholds": thr, "events": {k: cfg["events"][k] for k in ("ema_alpha", "k_on", "refractory_s")},
+            "thresholds": thr, "events": {k: cfg["events"][k] for k in ("ema_alpha", "k_on", "k_off", "refractory_s")},
             "model_cfg": cfg["model"], "normalizer": norm.to_dict(), "n_params": n_params(model),
             "receptive_field": model.receptive_field, "live_window_frames": tc["live_window_frames"],
             "rest_std": {d.id: d.rest_std.tolist() for d in data}, "feature_cfg": {

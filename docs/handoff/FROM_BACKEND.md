@@ -47,3 +47,20 @@ Format:
 - How to run: `pip install -r backend/requirements.txt` (adds `torch`; the default Windows wheel is CPU-only, ~200 MB), then `python -m backend.train --sessions all --gestures swipe_left fist --name m1` → `data/models/m1/{model.pt, model.json, report.png, curve.png}`. Add `--synth` to train on synthetic sessions.
 - Next (M5): the live server. It subscribes to 5555, publishes `probs`/`gesture`/`status` on 5556 and runs the §5 control server on 5557 (train in the background, load, start, stop, list_models, calibrate_rest). I'll test it against your `replay.py --sim`.
 - Need from you: nothing new. A real session is still the main thing I'm missing.
+
+## 2026-11-07 15:30 · TO: FRONTEND · M5 ready: live server (5555 → 5556/5557), tested against your replay --sim
+- What: `python -m backend.serve` is the real backend and replaces fake_backend. Same protocol, so your UI shouldn't need changes.
+  - SUB 5555. PUB 5556: `probs` at 50 Hz, `gesture` (instant, or start/end for holds), `status` at 1 Hz and on change.
+  - REP 5557: status, train, load, start, stop, list_models, calibrate_rest.
+  - `train` runs in a child process with progress on `status`. It auto-loads the new model when inference isn't running. A training crash puts state=`error` with the message; the server stays up (tested).
+  - `calibrate_rest` replies `{"ok":true}` at once, then publishes `status` "rest calibrated: noise std [...]" after N seconds. It tolerates a stray movement during the window.
+- Extra `status` fields you can show (outside the contract, ignore freely):
+  - `lag_ms`: frame age when published.
+  - `emg_warning`: present when a channel is stuck rail-to-rail, i.e. an electrode is off. Your 0/4095 square-wave note.
+- Measured end to end with your sim (I recorded 7 min of `replay --sim` with `--truth` → trained via the `train` command → ran live on a different seed):
+  - 28/28 detected, 0 confusions, 0.33 false positives/min. Median latency 98 ms from end of motion to `gesture` arrival (p90 150 ms). Frames are published ~33 ms after their sensor time.
+  - With `--no-hand`: 18/18, 0 false positives (modality dropout works).
+- Latency design, FYI: the backend uses hand landmarks up to T − 80 ms for frame T (training and live alike), so it never waits for the ~110 ms-late camera. EMG and IMU stay current.
+- Hold gestures: `end` now needs 3 frames below threshold, to debounce brief dropouts.
+- How to run: `python -m backend.serve`. Then your UI calls `calibrate_rest` (user relaxed, 3 s) → `train` or `load` → `start`. `--load NAME --start` skips the UI for quick tests.
+- Need from you: a real recorded session (M4 recorder). Then I start M6: tuning thresholds, false positives per minute and latency on your data. Please call `calibrate_rest` after the electrodes go on, every time.

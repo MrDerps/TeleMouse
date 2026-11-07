@@ -10,7 +10,7 @@ Feature layout per frame (D = 87), plus a (3,) presence mask [emg, imu, hand]:
   emg  [0:10)   log RMS, log MAV, log WL, ZC, SSC  x 2 channels  (rest-normalised units)
   imu  [10:22)  acc(3, g, gravity kept), acc_hp(3), gyro(3, deg/s), |acc|, |acc_hp|, |gyro|
   hand [22:87)  60 wrist-relative landmarks / palm size, wrist xy (image), wrist velocity xy (1/s),
-                palm size (x5)
+                palm size (x5). Hand features for frame T use landmarks stamped <= T - hand.lag_s.
 """
 from __future__ import annotations
 
@@ -228,6 +228,7 @@ class HandStream:
     def __init__(self, cfg: dict, img_w: int, img_h: int):
         h = cfg["hand"]
         self.hold, self.vclip = h["hold_s"], h["vel_clip"]
+        self.lag = h.get("lag_s", 0.0)
         self.aspect = img_w / img_h
         self.t = np.zeros(0)
         self.f = np.zeros((0, N_HAND))
@@ -266,11 +267,16 @@ class HandStream:
         self.f = np.concatenate([self.f, f])
         self.prev = (float(tv[-1]), wrist_xy[-1].copy())
 
+    def set_image_size(self, img_w, img_h):
+        if img_w and img_h:
+            self.aspect = img_w / img_h
+
     def frames(self, T: np.ndarray):
         F = len(T)
         out = np.zeros((F, N_HAND), np.float32)
         if len(self.t) == 0 or F == 0:
             return out, np.zeros(F, bool)
+        T = T - self.lag
         k = np.searchsorted(self.t, T + EPS_T, "right") - 1
         ok = (k >= 0) & (T - self.t[np.maximum(k, 0)] <= self.hold + EPS_T)
         out[ok] = self.f[k[ok]]
@@ -325,7 +331,7 @@ class StreamFeaturizer:
             if self._alive(self.imu.last_t):
                 lim = min(lim, self.imu.last_t)
             if self._alive(self.hand.last_t):
-                lim = min(lim, self.hand.last_t)
+                lim = min(lim, self.hand.last_t + self.hand.lag)
             ready |= T <= lim + EPS_T
             n = int(np.argmin(ready)) if not ready.all() else len(T)
         Tr, Er = T[:n], E[:n]

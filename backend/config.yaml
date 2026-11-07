@@ -38,6 +38,8 @@ imu:
 
 hand:
   hold_s: 0.10                   # hold last valid landmarks at most this long
+  lag_s: 0.08                    # frame T uses landmarks stamped <= T - lag_s (offline AND live), so live
+                                 # frames need not wait for the webcam (~110 ms late) -> low event latency
   default_img_w: 640             # used when meta.json has no img_w/img_h
   default_img_h: 480
   vel_clip: 5.0                  # wrist velocity clip (image units / s)
@@ -95,6 +97,7 @@ events:
   on_thr: 0.6
   off_thr: 0.4
   k_on: 2
+  k_off: 3                       # exit only after this many frames below off_thr (debounce)
   refractory_s: 0.4
   match_slack_s: 0.3             # detection may land this long after the cue window ends
   target_fp_per_min: 1.0

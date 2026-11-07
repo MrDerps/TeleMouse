@@ -15,6 +15,9 @@ pip install -r backend/requirements.txt
 | `python -m backend.data.plot_trial [--session ID]` | example trials (raw, features, activity, localised label) → `backend/_out/trials.png` |
 | `python -m backend.baseline [--synth] [--sessions ...] [--gestures ...] [--name N]` | LDA baseline + report → `data/models/N/` |
 | `python -m backend.train [--synth] [--sessions ...] [--gestures ...] [--name N] [--warm-start OLD]` | TCN training (~2 min CPU) → `data/models/N/{model.pt, model.json, report.png, curve.png}` |
+| `python -m backend.serve [--load NAME --start] [--synth]` | **live server**: SUB 5555 → PUB 5556 (probs/gesture/status), REP 5557 control |
+| `python -m backend.tools.record_stream --truth T.csv` | (test tool) record the 5555 sim stream as a session |
+| `python -m backend.tools.live_eval --truth T.csv` | (test tool) score live gesture events and latency against sim truth |
 | `python -m pytest backend/tests -q` | unit tests |
 
 All hyperparameters are in `backend/config.yaml`, and all paths are relative to the repo root.
@@ -44,6 +47,15 @@ All hyperparameters are in `backend/config.yaml`, and all paths are relative to 
 - `train.py`: training loop.
   - Class-weighted cross-entropy (weights ∝ 1/√freq, `none` dominates), AdamW with a one-cycle schedule, and the best checkpoint by validation loss.
   - Thresholds are tuned on validation, with the same report format as the baseline.
+
+- `serve/engine.py`: the live engine.
+  - Raw 5555 messages go through the same `StreamFeaturizer`, then the TCN runs on the last 96 frames, then the same `EventDetector` turns probabilities into events.
+  - A test checks that it matches offline output exactly.
+- `serve/server.py`: the control server.
+  - Training runs in a child process, so a crash there can't kill the server.
+  - `calibrate_rest` takes a robust std per 250 ms block and averages the quieter half, so it survives a stray movement.
+  - Status adds `lag_ms` (frame age when published) and `emg_warning` (a channel stuck rail-to-rail, i.e. an electrode is off).
+- Latency design: hand features for frame T use landmarks up to T − 80 ms (`hand.lag_s`), in training and live alike. So frames never wait for the ~110 ms-late webcam; they're published about 33 ms after their sensor time.
 
 ## Why a multi-branch causal TCN (M4)
 - **Causal and streaming:** the TCN is causal, so live inference just runs the same convolution over a ~1.5 s history.

@@ -3,7 +3,7 @@
 Per gesture: EMA-smoothed probability s.
   enter when s > on_thr for >= k_on consecutive frames (and the refractory period since the last exit has passed,
         and no other gesture is active);
-  exit  when s < off_thr (hysteresis).
+  exit  when s < off_thr for >= k_off consecutive frames (hysteresis + debounce).
   instant -> one `instant` event at the peak (first frame s drops after entering, or at exit);
   hold    -> `start` on enter, `end` on exit.
 """
@@ -22,6 +22,7 @@ class _G:
     off: float
     ema: float = 0.0
     count: int = 0
+    below: int = 0
     active: bool = False
     emitted: bool = False
     prev: float = 0.0
@@ -39,6 +40,7 @@ class EventDetector:
     off_thr: float = 0.4
     k_on: int = 2
     refractory_s: float = 0.4
+    k_off: int = 1
 
     def __post_init__(self):
         self.g = {}
@@ -51,10 +53,10 @@ class EventDetector:
             self.g[c] = _G(i, self.kinds.get(c, "instant"), on, off)
 
     @classmethod
-    def from_config(cls, classes, kinds, cfg, thresholds=None):
-        e = cfg["events"]
+    def from_config(cls, classes, kinds, cfg, thresholds=None, overrides=None):
+        e = {**cfg["events"], **(overrides or {})}
         return cls(classes, kinds, thresholds or {}, e["ema_alpha"], e["on_thr"], e["off_thr"], e["k_on"],
-                   e["refractory_s"])
+                   e["refractory_s"], e.get("k_off", 1))
 
     def reset(self):
         self.__post_init__()
@@ -70,7 +72,7 @@ class EventDetector:
             if not g.active:
                 g.count = g.count + 1 if s > g.on else 0
                 if g.count >= self.k_on and not any_active and t - g.last_exit >= self.refractory_s:
-                    g.active, g.emitted, g.peak = True, False, s
+                    g.active, g.emitted, g.peak, g.below = True, False, s, 0
                     any_active = True
                     if g.kind == "hold":
                         out.append({"t": t, "id": gid, "conf": round(s, 4), "kind": "start"})
@@ -80,7 +82,8 @@ class EventDetector:
                 out.append({"t": t, "id": gid, "conf": round(g.peak, 4), "kind": "instant"})
                 g.emitted = True
             g.peak = max(g.peak, s)
-            if s < g.off:
+            g.below = g.below + 1 if s < g.off else 0
+            if g.below >= self.k_off:
                 if g.kind == "hold":
                     out.append({"t": t, "id": gid, "conf": round(s, 4), "kind": "end"})
                 elif not g.emitted:
