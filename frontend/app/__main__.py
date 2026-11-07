@@ -62,6 +62,9 @@ class App(QtWidgets.QMainWindow):
                                load_settings(), log=self.log)
         self.pointer.start()
 
+        self.pending_model = None             # set by "train on everything": announce when it's loaded
+        from .teach import TeachFlow
+        self.teach = TeachFlow(self)
         self.tabs = QtWidgets.QTabWidget()
         self.live = LiveTab(self)
         self.gtab = GesturesTab(self)
@@ -118,6 +121,18 @@ class App(QtWidgets.QMainWindow):
         self.live.refresh(snap)
         self.train.refresh()
         self.run.refresh()
+        if self.pending_model and self.backend.online:
+            st = self.backend.status
+            if st.get("state") == "error":
+                QtWidgets.QMessageBox.warning(self, "Training", f"Training failed: {st.get('message')}")
+                self.pending_model = None
+            elif st.get("state") != "training" and st.get("model") == self.pending_model:
+                name, self.pending_model = self.pending_model, None
+                self.train.refresh_models()
+                self.statusBar().showMessage(f"model {name} trained and loaded")
+                QtWidgets.QMessageBox.information(
+                    self, "New model ready", f"'{name}' is trained and loaded ({st.get('message') or ''}).\n\n"
+                    "Run tab: Calibrate rest, then Start inference. The Train tab's model list shows its accuracy.")
         events = self.backend.drain_events()
         if events:
             self.live.add_events(events)

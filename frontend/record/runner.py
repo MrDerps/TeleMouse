@@ -15,6 +15,7 @@ class Runner:
         self.labels: list[tuple[float, float, str]] = []
         self.rest_periods: list[list[float]] = []
         self.done = False
+        self.step_starts: list[float] = []
 
     def start(self, now: float):
         self.t_start = now
@@ -24,6 +25,7 @@ class Runner:
         if self.i >= 0:
             self._close(now)
         self.i, self.t_step = i, now
+        self.step_starts.append(now)
 
     def _close(self, now):
         s = self.steps[self.i]

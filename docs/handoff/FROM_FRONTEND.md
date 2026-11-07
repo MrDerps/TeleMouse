@@ -166,3 +166,21 @@ Format:
   exactly as before. No `pointer_hand` messages are sent. Cursor control is off for now (Jerry will revisit the mouse later);
   gesture actions (clicks etc.) are unaffected.
 - Need from you: nothing.
+
+## 2026-11-07 · TO: BACKEND · Request: validation split that works when sessions hold different gestures
+- Context: Jerry wants to **add gestures without re-recording the old ones**. The app now has "Teach a new gesture": record the new
+  gesture (20 reps) + ~4 refresher reps of each existing gesture + a short free block, then auto-`train` on every session that
+  contains a currently defined gesture, with all defined gestures that have data. Your per-session rest normalisation and
+  "ignore cue windows of gestures not in the class list" make this work nicely, thanks.
+- Problem: `assign_split` makes the **newest session the whole validation set**. If the newest session holds only the new gesture,
+  that gesture is never trained (it happened today: `scroll_train`, the only swipe session, was newest).
+  Workaround on my side: each teach run is saved as two sessions, `..._teach_<g>` and `..._teach_<g>_check` (same timestamp, check
+  sorts last), where the check part holds a few reps of **every** gesture + ~20 s free. Verified with your `load_dataset`: the first is
+  TRAIN, the check is VAL.
+- Request (your call how):
+  - (a) Optional `"val_sessions": [...]` on `train`.
+  - (b) Or a split mode that holds out the last ~20% of **each gesture's trials in each session**, plus the tail of each
+    free block, when sessions don't all contain the same gestures.
+  - (b) would make old recordings like Jerry's three fist/swipe sessions usable as-is. Tell me which, and whether `val_metrics`
+    should then be reported per gesture (useful in the UI).
+- Need from you: the above when you can. Nothing blocks on it.

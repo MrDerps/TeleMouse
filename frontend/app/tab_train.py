@@ -41,8 +41,12 @@ class TrainTab(QtWidgets.QWidget):
         self.sess.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.glist = QtWidgets.QListWidget()
         self.name = QtWidgets.QLineEdit(dt.datetime.now().strftime("m_%m%d_%H%M"))
-        self.train_btn = QtWidgets.QPushButton("Train")
+        self.train_btn = QtWidgets.QPushButton("Train (ticked sessions + gestures)")
         self.train_btn.clicked.connect(self.train)
+        self.all_btn = QtWidgets.QPushButton("★ Train on everything")
+        self.all_btn.setStyleSheet("background:#2f81f7; color:white; font-weight:bold;")
+        self.all_btn.setToolTip("All sessions that contain a currently defined gesture, all defined gestures with data")
+        self.all_btn.clicked.connect(self.train_all)
         self.progress = QtWidgets.QProgressBar(maximum=1000)
         self.msg = QtWidgets.QLabel()
         self.msg.setWordWrap(True)
@@ -76,6 +80,7 @@ class TrainTab(QtWidgets.QWidget):
         right.addRow(QtWidgets.QLabel("Gestures"))
         right.addRow(self.glist)
         right.addRow("Model name", self.name)
+        right.addRow(self.all_btn)
         right.addRow(self.train_btn)
         right.addRow(self.progress)
         right.addRow(self.msg)
@@ -122,6 +127,11 @@ class TrainTab(QtWidgets.QWidget):
         self.msg.setText("sending train request…")
         self.app.backend.control({"cmd": "train", "gestures": gest, "sessions": sessions, "name": name},
                                  self._train_reply, timeout_s=5.0)
+
+    def train_all(self):
+        from .teach import train_everything
+        ok, info = train_everything(self.app, on_reply=self._train_reply)
+        self.msg.setText(info)
 
     def _train_reply(self, r):
         self.msg.setText("training started" if r.get("ok") else f"error: {r.get('error')}")

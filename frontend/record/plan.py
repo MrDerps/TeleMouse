@@ -15,12 +15,12 @@ class Step:
     trial: int = 0      # 1-based index among cue steps
 
 
-def build_plan(gestures: list[dict], reps: int = 20, rest_s: float = 10.0, free_s: float = 150.0,
+def build_plan(gestures: list[dict], reps: int | dict = 20, rest_s: float = 10.0, free_s: float = 150.0,
                gap=(1.5, 2.5), cue_s: float = 2.0, hold_cue_s: float = 3.0, seed=None) -> list[Step]:
-    """gestures: [{"id","name","kind"}]. Random trial order, random relax gaps."""
+    """gestures: [{"id","name","kind"}]. reps: int, or {gesture id: reps}. Random trial order, random relax gaps."""
     rng = random.Random(seed)
     steps = [Step("rest", rest_s, "none", "RELAX\nlet your arm and hand go limp")]
-    order = [g for g in gestures for _ in range(reps)]
+    order = [g for g in gestures for _ in range(reps.get(g["id"], 0) if isinstance(reps, dict) else reps)]
     rng.shuffle(order)
     for i, g in enumerate(order, 1):
         steps.append(Step("relax", rng.uniform(*gap), None, "relax", trial=i))

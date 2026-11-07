@@ -105,24 +105,33 @@ def _expand(chunks, t0s, fs):
 
 def write_session(buf: StreamBuffer, labels: list, rest_periods: list, tag: str, gestures_snapshot: dict,
                   electrode_notes: str = "", imu_notes: str = "", extra_meta: dict | None = None,
-                  out_root: Path = SESSIONS) -> tuple[Path, dict]:
-    """labels: [(t_start, t_end, label)]. Returns (session dir, summary dict)."""
+                  out_root: Path = SESSIONS, t_range=None, stamp: str | None = None) -> tuple[Path, dict]:
+    """labels: [(t_start, t_end, label)]. Returns (session dir, summary dict).
+    t_range=(a, b): only write data with times in [a, b) (to split one run into several sessions).
+    stamp: the YYYYmmdd_HHMMSS part of the id (default: now)."""
+    a, b = t_range if t_range else (-np.inf, np.inf)
+
+    def pick(chunks, t0s):
+        k = [i for i, t0 in enumerate(t0s) if a <= t0 < b]
+        return [chunks[i] for i in k], [t0s[i] for i in k]
     with buf.lock:
-        emg, emg_t = _expand(buf.emg, buf.emg_t0, P.FS_EMG)
-        imu, imu_t = _expand(buf.imu, buf.imu_t0, P.FS_IMU)
-        hand = np.stack(buf.hand).astype(np.float32) if buf.hand else np.zeros((0, 21, 3), np.float32)
-        hand_t = np.array(buf.hand_t, np.float64)
-        hand_score = np.array(buf.hand_score, np.float32)
+        ec, et = pick(buf.emg, buf.emg_t0)
+        emg_idx = [buf.emg_idx[i] for i, t0 in enumerate(buf.emg_t0) if a <= t0 < b]
+        emg, emg_t = _expand(ec, et, P.FS_EMG)
+        imu, imu_t = _expand(*pick(buf.imu, buf.imu_t0), P.FS_IMU)
+        hk = [i for i, t in enumerate(buf.hand_t) if a <= t < b]
+        hand = np.stack([buf.hand[i] for i in hk]).astype(np.float32) if hk else np.zeros((0, 21, 3), np.float32)
+        hand_t = np.array([buf.hand_t[i] for i in hk], np.float64)
+        hand_score = np.array([buf.hand_score[i] for i in hk], np.float32)
         img_w, img_h = buf.img
         st_hist = list(buf.status_hist)
-        emg_idx = list(buf.emg_idx)
-        lens = [len(c) for c in buf.emg]
+        lens = [len(c) for c in ec]
     if emg is None:
         emg, emg_t = np.zeros((0, 2), np.uint16), np.zeros(0)
     if imu is None:
         imu, imu_t = np.zeros((0, 6), np.float32), np.zeros(0)
 
-    sid = f"{dt.datetime.now().strftime('%Y%m%d_%H%M%S')}_{tag}"
+    sid = f"{stamp or dt.datetime.now().strftime('%Y%m%d_%H%M%S')}_{tag}"
     out = out_root / sid
     out.mkdir(parents=True, exist_ok=False)
     np.save(out / "emg.npy", emg.astype(np.uint16))

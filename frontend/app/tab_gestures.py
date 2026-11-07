@@ -79,6 +79,11 @@ class GesturesTab(QtWidgets.QWidget):
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.doubleClicked.connect(lambda *_: self.edit_action())
         btns = QtWidgets.QHBoxLayout()
+        teach = QtWidgets.QPushButton("★ Teach a new gesture…")
+        teach.setStyleSheet("background:#2f81f7; color:white; font-weight:bold;")
+        teach.setToolTip("Record only the new gesture (+ a few refresher reps of the others), then retrain on everything")
+        teach.clicked.connect(lambda: self.app.teach.start(self))
+        btns.addWidget(teach)
         for text, fn in [("Add…", self.add), ("Rename…", self.rename), ("Set action…", self.edit_action),
                          ("Delete", self.delete)]:
             b = QtWidgets.QPushButton(text)
