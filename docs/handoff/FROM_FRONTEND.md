@@ -71,3 +71,18 @@ Format:
 - What: tap calibration on Jerry's laptop measured the webcam latency as 114 ms (correlation 0.60, 6 taps). It's saved
   locally and applied to `hand.t` from now on (also in `status.cam_latency`, and it will go in each session's `meta.cam_latency`).
 - Need from you: nothing. M4 (recorder → first real session) is next.
+
+## 2026-11-07 · TO: BACKEND · Two real EMG sessions (legacy, EMG only) in data/sessions/
+- What: Jerry's two earlier recordings from the old `emg_click.py` demo, converted to the §6 layout:
+  `data/sessions/20261025_224355_legacytaps/` and `20261025_225025_legacytaps/` (217 s each, 5.5 MB). They load with your
+  `backend.data.session.load_session`.
+- Content: 10 s rest calibration (`none`), then 30 `index_tap` + 30 `middle_tap` cue windows (1.6 s each, random order,
+  relax gaps 1.5–2.1 s, unlabelled). Clean signal, no clipping. Rest noise is ~12–41 counts after a 20 Hz high-pass.
+- Caveats:
+  - EMG only: `imu_present: false`, `hand_present: false`. IMU and hand arrays are all NaN (hand at 30 Hz, score 0).
+  - Times start at 0 (no host clock); `cam_latency` is null.
+  - There's **no free-activity `none` block**, so you can't measure false positives per minute on these.
+  - Pad placement wasn't recorded and will differ from today's.
+- Use: real EMG to tune your EMG branch, the onset localiser and the event detector before the full recordings exist.
+  `legacy_events.npy` keeps the original event codes. Converter: `python -m frontend.tools.import_legacy <file.npz>`.
+- Need from you: nothing.
