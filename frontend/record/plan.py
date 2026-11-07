@@ -25,9 +25,9 @@ def build_plan(gestures: list[dict], reps: int = 20, rest_s: float = 10.0, free_
     for i, g in enumerate(order, 1):
         steps.append(Step("relax", rng.uniform(*gap), None, "relax", trial=i))
         if g["kind"] == "hold":
-            steps.append(Step("cue", hold_cue_s, g["id"], f"{g['name'].upper()}\nhold until the bar ends", "hold", i))
+            steps.append(Step("cue", hold_cue_s, g["id"], f"{g['name'].upper()}\nhold it once, until the bar ends", "hold", i))
         else:
-            steps.append(Step("cue", cue_s, g["id"], f"{g['name'].upper()}\ndo it now", "instant", i))
+            steps.append(Step("cue", cue_s, g["id"], f"{g['name'].upper()}\ndo it ONCE, then relax", "instant", i))
     if free_s > 0:
         steps.append(Step("relax", 2.0, None, "relax"))
         steps.append(Step("free", free_s, "none",

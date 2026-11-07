@@ -1,4 +1,4 @@
-# Interface contract: frontend ↔ backend   (version 0.2: single IMU)
+# Interface contract: frontend ↔ backend   (version 0.3: single IMU, sensor subsets)
 
 The frontend and backend run as **separate processes** and talk over **ZeroMQ on localhost**,
 plus shared **files in `data/`**. The serial packet format is internal to the frontend, so the backend never sees it.
@@ -49,7 +49,7 @@ counts the gap in `status.dropped`.
 |---|---|---|
 | `b"probs"` | 50 Hz | `t` (stream time of the newest frame used), `classes`: [...], `p`: [...] (sums to 1, includes `"none"`) |
 | `b"gesture"` | when one happens | `t`, `id` (gesture id), `conf`, `kind`: `"instant"` (fire once), or `"start"`/`"end"` (for hold gestures) |
-| `b"status"` | 1 Hz, and on change | `state`: `"idle"`/`"training"`/`"running"`/`"error"`, `model`: name or null, `progress`: 0–1 while training, `message` |
+| `b"status"` | 1 Hz, and on change | `state`: `"idle"`/`"training"`/`"running"`/`"error"`, `model`: name or null, `progress`: 0–1 while training, `message`. Since v0.3 also (optional) `sensors`, `accuracy` while running |
 
 The latency target is under 150 ms from end of motion to the `gesture` event (ideally under 100 ms).
 
@@ -57,10 +57,11 @@ The latency target is under 150 ms from end of motion to the `gesture` event (id
 | Request | Reply |
 |---|---|
 | `{"cmd":"status"}` | `{"ok":true, "state":..., "model":..., "classes":[...]}` |
-| `{"cmd":"train", "gestures":["swipe_left",...], "sessions":"all" or ["<session_id>",...], "name":"model_name"}` | `{"ok":true}` immediately. Training runs in the background, and progress is published on 5556 `status` |
+| `{"cmd":"train", "gestures":["swipe_left",...], "sessions":"all" or ["<session_id>",...], "name":"model_name", "sensors":["emg","imu","hand"] (v0.3, optional, default all)}` | `{"ok":true}` immediately. Training runs in the background, and progress is published on 5556 `status` |
 | `{"cmd":"load", "name":"model_name"}` | `{"ok":true, "classes":[...]}` |
 | `{"cmd":"start"}` / `{"cmd":"stop"}` | `{"ok":true}`: start or stop live inference on the 5555 stream |
-| `{"cmd":"list_models"}` | `{"ok":true, "models":[{"name":..., "classes":[...], "created":..., "val_metrics":{...}}]}` |
+| `{"cmd":"start", "sensors":["emg","imu"]}` (v0.3, optional field) | `{"ok":true, "sensors":[...], "accuracy":{"precision","recall","fp_per_min","latency_ms"}}`: run the loaded model with only these sensors |
+| `{"cmd":"list_models"}` | `{"ok":true, "models":[{"name":..., "classes":[...], "created":..., "val_metrics":{...}, "sensors":[...], "by_sensors":{"emg+imu+hand":{"precision","recall","fp_per_min","latency_ms"}, "imu":{...}, ...}}]}` (`sensors`, `by_sensors` since v0.3) |
 | `{"cmd":"calibrate_rest", "seconds":3}` | `{"ok":true}`: the backend recomputes rest-normalisation stats from the live stream (the user relaxes) |
 
 Errors are returned as `{"ok":false, "error":"message"}`. Never let an exception kill the server.
@@ -84,7 +85,7 @@ Errors are returned as `{"ok":false, "error":"message"}`. Never let an exception
 `session_id` = `YYYYmmdd_HHMMSS_<tag>`.
 | File | Content |
 |---|---|
-| `meta.json` | `session_id`, `created`, `fs_emg`=1000, `fs_imu`=200, `cam_latency`, `imu_present`:bool, `electrode_notes`, `imu_notes`, `gestures_snapshot` (copy of gestures.json at record time), `rest_periods`: [[t_start,t_end],...], `protocol_version` |
+| `meta.json` | `session_id`, `created`, `emg_valid` (bool, v0.3; false = no pads / unusable EMG), `img_w`, `img_h` (v0.3), `fs_emg`=1000, `fs_imu`=200, `cam_latency`, `imu_present`:bool, `electrode_notes`, `imu_notes`, `gestures_snapshot` (copy of gestures.json at record time), `rest_periods`: [[t_start,t_end],...], `protocol_version` |
 | `emg.npy`, `emg_t.npy` | uint16 (N,2) raw counts; float64 (N,) host times |
 | `imu.npy`, `imu_t.npy` | float32 (M,6) as in §3; float64 (M,) |
 | `hand.npy`, `hand_t.npy`, `hand_score.npy` | float32 (K,21,3) with **NaN rows when there's no hand**; float64 (K,); float32 (K,) |

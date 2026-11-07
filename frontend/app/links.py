@@ -90,20 +90,21 @@ class BackendLink(QtCore.QObject):
                 topic, h, _ = P.recv(sub)
             except Exception:
                 continue
+            if topic == P.TOPIC_GESTURE:
+                h = dict(h, rx=time.perf_counter())
+                if self.on_gesture:                  # act first (lowest latency), then log
+                    try:
+                        h["_outcome"] = self.on_gesture(h)
+                    except Exception as e:  # an action failure must never kill the link
+                        h["_outcome"] = f"error: {e}"
             with self.lock:
                 if topic == P.TOPIC_STATUS:
                     self.status, self.status_t = h, time.perf_counter()
                 elif topic == P.TOPIC_PROBS:
                     self.probs = (h.get("t"), h.get("classes", []), h.get("p", []))
                 elif topic == P.TOPIC_GESTURE:
-                    h = dict(h, rx=time.perf_counter())
                     self.events.append(h)
                     self.events = self.events[-200:]
-            if topic == P.TOPIC_GESTURE and self.on_gesture:
-                try:
-                    self.on_gesture(h)
-                except Exception as e:  # an action failure must never kill the link
-                    print(f"[app] action error: {e}")
         sub.close(0)
 
     def _run_req(self):

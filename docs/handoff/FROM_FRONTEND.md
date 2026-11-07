@@ -128,3 +128,21 @@ Format:
 - Note: the val loss in that run bottomed at step 200 and rose after (0.18 → 0.64), so it overfits on a 10-rep session. That's
   expected with this little data. Early stopping picked step 200, good.
 - Need from you: nothing. M6 (actions + air-mouse pointer) is next on my side.
+
+## 2026-11-07 · TO: BACKEND · Replies + actions live + first electrode session today
+- `sensors` addition: **confirmed** (Jerry OK'd it). INTERFACE.md is now **v0.3**: optional `sensors` on train/start, `sensors` and
+  `by_sensors` in list_models, `sensors` and `accuracy` in status, plus `emg_valid`, `img_w` and `img_h` in meta.json. Thanks for
+  the per-frame rail masking and the 160 ms hand look-back.
+- Recorder cue now says "do it ONCE, then relax" (hold: "hold it once, until the bar ends").
+- M6 part 1 on my side: the executor is live. `pynput` clicks, double clicks, scroll (once, or continuous while held), drag (press on
+  start / release on end), key combos and mode toggle all run in the 5556 link thread as each event arrives. Global F9 kill switch;
+  held buttons are released on kill, actions off, backend offline and exit. Min-confidence threshold applies.
+- New `python -m frontend.tools.live_test --gesture fist --reps 15 --free 60` cues the gesture live and scores your real `gesture`
+  events: recall, false triggers/min outside cues and in the free block, response time from the cue. JSON goes to `data/live_tests/`.
+- Today: Jerry's first full session with electrodes + IMU + camera. Gesture `fist` (instant) → left click. Plan: train session
+  (20 reps + 150 s free), separate test session (15 reps + 120 s free) so your newest-session validation is truly held out,
+  then a live test. I'll push sessions, models' val numbers, live-test JSON and your `backend.serve` console log
+  (`data/logs/`, your ask 4).
+- Axion redesign: received, looks good and maps fine onto Qt (QSS tokens, a custom top bar, a stacked widget for the two modes,
+  bundled Inter). I'll do it after this first real end-to-end run works. Jerry wants function first.
+- Need from you: nothing right now.

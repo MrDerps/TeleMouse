@@ -52,7 +52,10 @@ class App(QtWidgets.QMainWindow):
         self.sensors.start()
         self.backend = BackendLink()
         self.backend.start()
-        self.executor = None                 # M6 action executor plugs in here
+        from ..actions.executor import Executor
+        self.executor = Executor(self, log=self.log)
+        self.backend.on_gesture = self.executor.handle      # runs in the link thread
+        self.executor.start_hotkey(self.kill)              # global F9, any window
 
         self.tabs = QtWidgets.QTabWidget()
         self.live = LiveTab(self)
@@ -94,13 +97,14 @@ class App(QtWidgets.QMainWindow):
         if on:
             self.killed = False
         self.actions_enabled = bool(on)
+        if not on:
+            self.executor.release_all()
         self.log("actions " + ("ENABLED" if on else "disabled"))
 
     def kill(self):
         self.killed = True
         self.actions_enabled = False
-        if self.executor:
-            self.executor.release_all()
+        self.executor.release_all()
         self.log("KILL SWITCH: all actions disabled")
 
     # ------------------------------------------------------------------ UI timer (no I/O here)
@@ -114,6 +118,8 @@ class App(QtWidgets.QMainWindow):
             self.live.add_events(events)
             self.run.add_decisions([(e, e.get("_outcome") or decide(self, e, self.gestures)) for e in events])
         now = time.perf_counter()
+        if not self.backend.online and self.executor.held:
+            self.executor.release_all()            # never leave a button held if the backend vanishes
         if now - self._last_be_poll > 5 and not self.backend.online:
             self._last_be_poll = now           # nudge: a status request also detects a backend that just started
             self.backend.control({"cmd": "status"}, lambda r: None, timeout_s=1.0)
@@ -121,6 +127,7 @@ class App(QtWidgets.QMainWindow):
     def closeEvent(self, e):
         self.timer.stop()
         self.kill()
+        self.executor.stop()
         self.sources.stop()
         self.backend.stop()
         self.sensors.stop()

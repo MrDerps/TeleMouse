@@ -33,7 +33,7 @@ class RunTab(QtWidgets.QWidget):
         self.probs = ProbBars()
         self.log = QtWidgets.QListWidget()
         self.reply = QtWidgets.QLabel()
-        kill = QtWidgets.QLabel("Kill switch: F9 disables all actions instantly (app window for now; global hotkey in M6).")
+        kill = QtWidgets.QLabel("Kill switch: F9 disables all actions instantly (works from any window).")
         kill.setStyleSheet("color:#f0b429;")
 
         ctl = QtWidgets.QHBoxLayout()
