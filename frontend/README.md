@@ -15,8 +15,9 @@ or an unplugged laptop. Never from a wall-powered PC.
 | Live plots of 5555 | `python -m frontend.tools.viewer` |
 | Serial ports | `python -m frontend.acquire --list` |
 | ESP32 stream check (10 s report) | `python firmware/tools/check_stream.py --port COM7` |
-| ESP32 → 5555 (EMG + IMU; camera in M3) | `python -m frontend.acquire --port COM7` |
-| Parser / timing self-tests | `python -m frontend.acquire.serial_v2 --selftest`, `python -m frontend.acquire.serial_reader` |
+| Acquisition: ESP32 + webcam → 5555 | `python -m frontend.acquire --port COM7` (`--no-camera`, `--no-serial`, `--camera N`) |
+| Camera latency (sync) calibration | `python -m frontend.acquire --port COM7 --calibrate-sync` then tap the hand on the desk ~5× |
+| Self-tests | `python -m frontend.acquire.serial_v2 --selftest`, `python -m frontend.acquire.serial_reader`, `python -m frontend.acquire.sync --selftest` |
 
 Firmware: `firmware/emg_imu_stream/emg_imu_stream.ino` (board "ESP32 Dev Module", core 3.x).
 Serial format: `firmware/PROTOCOL.md`.
@@ -25,3 +26,7 @@ Flash from the command line (or open the sketch in the Arduino IDE and press Upl
 ```
 "C:\Program Files\Arduino IDE\resources\app\lib\backend\resources\arduino-cli.exe" compile --upload -p COM7 --fqbn esp32:esp32:esp32 firmware\emg_imu_stream
 ```
+
+Machine settings (serial port, camera index, calibrated camera latency) live in `data/frontend_config.json`
+(per machine, not committed). The MediaPipe model downloads on first run to `frontend/assets/hand_landmarker.task` (git-ignored).
+Only one process can publish on 5555: stop the simulator before running acquire.

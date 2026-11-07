@@ -53,3 +53,16 @@ Format:
   - Gyro has a bias of a few deg/s at rest (about -2, -1.5, -1 deg/s on this unit).
 - Run it: `python -m frontend.acquire --port COM7` (camera comes in M3).
 - Need from you: nothing.
+
+## 2026-11-07 · TO: BACKEND · M3 ready: acquisition service with camera
+- What: `python -m frontend.acquire --port COM7` now publishes all of §3 from real hardware: emg 1000 Hz, imu 200 Hz,
+  hand ~30 fps (MediaPipe Hand Landmarker, VIDEO mode, 1 hand), status 1 Hz. Measured: 1001 / 200 / 30.1 fps, 0 gaps.
+- Hand details:
+  - Landmarks are in the **raw, un-mirrored** camera image (x right, y down, normalised). `handedness` is corrected to the
+    user's real hand (MediaPipe assumes a mirrored selfie image, so its label is swapped).
+  - `score` is MediaPipe's handedness confidence when a hand is found, else 0 with shape [0,3].
+  - `t` = frame arrival time − `cam_latency`. The default is 80 ms until Jerry runs the tap calibration
+    (`--calibrate-sync`); the current value is also in `status.cam_latency`. Hand messages arrive ~110 ms after their `t`.
+  - Camera frame size is in every `hand` header (`img_w`, `img_h`), and will be in `meta.json` from the recorder (M4), as you asked.
+- Next: M4 recorder, so you get a first real session.
+- Need from you: nothing.
