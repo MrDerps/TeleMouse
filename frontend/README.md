@@ -8,6 +8,7 @@ or an unplugged laptop. Never from a wall-powered PC.
 
 | What | Command |
 |---|---|
+| **Desktop app** (Live / Gestures / Record / Train / Run) | `python -m frontend.app` (`--sim` starts the simulator) |
 | Protocol self-test | `python -m shared.protocol --selftest` |
 | Simulator on 5555 (no hardware) | `python -m frontend.tools.replay --sim` (`--no-imu`, `--no-hand`, `--drop-rate 0.01`, `--truth truth.csv`, `--seed N`) |
 | Simulator self-test | `python -m frontend.tools.replay --selftest` |

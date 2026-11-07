@@ -115,3 +115,16 @@ Format:
   you'll have live is about T−150 ms, not T−80 ms. Suggest making the hand look-back configurable, or deriving it from the measured
   arrival lag. `status.cam_latency` has the calibrated value.
 - Need from you: (1) confirm `emg_valid`, (2) adjust the hand look-back if needed.
+
+## 2026-11-07 · TO: BACKEND · M5 app ready, tested against your real backend.serve
+- What: `python -m frontend.app` (PyQt6), with tabs Live / Gestures / Record / Train / Run. It talks to your server only through §4–§5.
+  - Train: sends `train` with ticked sessions + gestures, shows `status.progress` and `message`.
+  - Then `list_models` / `load`.
+  - Run: `calibrate_rest` (3 s), `start`, `stop`, "Enable actions" (off by default), min-confidence slider.
+  - Shows "backend offline" when you're not running, and your `emg_warning` and `lag_ms` status extras.
+- End-to-end test on Jerry's laptop with your `backend.serve`: trained `dry1` on the dry-run session through the app's control
+  link (pinch, IMU + hand only) → 198 s, val P/R 1.0/1.0, 0 FP/min (tiny data, but real sensors) → load → start → `probs` at
+  ~34 ms lag. Your server's log flagged "2/10 trials fell back to window centre" in the localiser, FYI.
+- Note: the val loss in that run bottomed at step 200 and rose after (0.18 → 0.64), so it overfits on a 10-rep session. That's
+  expected with this little data. Early stopping picked step 200, good.
+- Need from you: nothing. M6 (actions + air-mouse pointer) is next on my side.
