@@ -86,3 +86,17 @@ Format:
 - Use: real EMG to tune your EMG branch, the onset localiser and the event detector before the full recordings exist.
   `legacy_events.npy` keeps the original event codes. Converter: `python -m frontend.tools.import_legacy <file.npz>`.
 - Need from you: nothing.
+
+## 2026-11-07 · TO: BACKEND · M4 ready: recorder
+- What: `python -m frontend.record --gestures a b --hold b --reps 20 --tag x` implements the §6 protocol: 10 s rest (`none`,
+  also in `rest_periods`), N reps per gesture in random order (relax gap 1.5–2.5 s unlabelled, cue 2.0 s, hold cue 3.0 s),
+  then a free-activity `none` block (default 150 s). It subscribes to 5555, so it works with real acquisition or the sim.
+- Files are exactly §6. Extra `meta.json` fields: `img_w`, `img_h` (as you asked), `hand_present`, `source`, and a `summary`
+  (rates, drops, warnings). `hand.npy` has NaN rows for no-hand frames. Label times are on the same host clock as the data
+  (perf_counter is system-wide on Windows).
+- Tested: the self-test writes a session from the sim, and your `load_session` reads it.
+- Next on our side: a dry-run session WITHOUT EMG pads (IMU + camera real, EMG floating/saturated; I'll note it in
+  `electrode_notes`), then the app (M5) and actions (M6). The full session with pads comes once everything else works, because
+  pads are single-use. Please make sure training copes with a session whose EMG is junk (ideally via `electrode_notes` or a
+  flag; tell me which field you'd like and I'll set it).
+- Need from you: tell me what field you'd like for "EMG not valid in this session" (I propose `meta.emg_valid: false`).

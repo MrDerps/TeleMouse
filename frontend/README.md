@@ -18,6 +18,10 @@ or an unplugged laptop. Never from a wall-powered PC.
 | Acquisition: ESP32 + webcam → 5555 | `python -m frontend.acquire --port COM7` (`--no-camera`, `--no-serial`, `--camera N`) |
 | Camera latency (sync) calibration | `python -m frontend.acquire --port COM7 --calibrate-sync` (preview window; wait for HAND OK, then ~5 sharp taps that stop suddenly) |
 | Camera preview with landmarks | `python -m frontend.acquire --port COM7 --preview` |
+| Record a session (needs acquire or sim on 5555) | `python -m frontend.record --gestures swipe_left fist_hold --hold fist_hold --reps 20 --tag jerry` |
+| Dry run without EMG pads | `python -m frontend.record --gestures ... --reps 10 --tag dryrun --allow-missing emg` |
+| Recorder self-test | `python -m frontend.record --selftest` |
+| Import legacy emg_click .npz | `python -m frontend.tools.import_legacy file.npz` |
 | Self-tests | `python -m frontend.acquire.serial_v2 --selftest`, `python -m frontend.acquire.serial_reader`, `python -m frontend.acquire.sync --selftest` |
 
 Firmware: `firmware/emg_imu_stream/emg_imu_stream.ino` (board "ESP32 Dev Module", core 3.x).
