@@ -1,0 +1,72 @@
+# Single source of truth for every backend hyperparameter.
+# Paths are relative to the repo root (resolved by backend/common/config.py).
+
+seed: 0
+
+paths:
+  sessions: data/sessions        # real recordings (committed by the frontend)
+  synth: backend/_synth          # synthetic sessions (git-ignored)
+  models: data/models            # trained models (git-ignored)
+  gestures: data/gestures.json   # written by the frontend UI
+
+frame:
+  hop_s: 0.02                    # 50 Hz common grid
+  max_wait_s: 0.15               # live: max time to wait for a late modality before emitting a frame
+
+emg:
+  fs: 1000
+  frame_len: 20                  # samples per 20 ms frame
+  hp_hz: 20.0
+  hp_order: 2
+  notch_hz: 60.0
+  notch_q: 30.0
+  zc_thresh: 1.0                 # deadzone for zero crossings / slope sign changes, in rest-std units
+  log_clip: 300.0                # clip amplitude features at this many x rest-noise before log
+  rest_skip_s: 1.0               # skip filter transient at the start of a rest period
+  rest_std_floor: 1.0            # ADC counts
+
+imu:
+  fs: 200
+  # Mounting (from Jerry, 2026-11-07): back of RIGHT hand, palm down:
+  #   +x -> fingertips, -y -> thumb side (+y -> pinky side), -z -> up (out of back of hand).
+  # So at rest the accelerometer reads about [0, 0, -1] g.
+  axis_fingers: [1, 0, 0]
+  axis_thumb: [0, -1, 0]
+  axis_up: [0, 0, -1]
+  aa_hz: 20.0                    # anti-alias low-pass before averaging to 50 Hz
+  acc_hp_hz: 0.5                 # high-passed accel copy (gravity removed)
+
+hand:
+  hold_s: 0.10                   # hold last valid landmarks at most this long
+  default_img_w: 640             # used when meta.json has no img_w/img_h
+  default_img_h: 480
+  vel_clip: 5.0                  # wrist velocity clip (image units / s)
+
+labels:
+  edge_ignore_s: 0.10            # ignore frames just outside the localised span
+  merge_gap_s: 0.15              # merge active spans separated by less than this
+  min_span_s: 0.10
+  k_abs: 4.0                     # activity must exceed this robust z ...
+  k_rel: 0.30                    # ... and this fraction of the window's peak
+  smooth_frames: 5
+  floors: {emg: 0.05, gyro: 5.0, hand: 0.3}   # MAD floors for robust z
+  fallback_half_s: 0.25          # instant fallback span = window centre +- this
+
+split:
+  val_frac: 0.2                  # used when there is only one session
+
+baseline:
+  win_frames: 20                 # 400 ms windows
+  none_subsample: 2              # keep every n-th 'none' training frame
+  shrinkage: auto
+
+events:
+  ema_alpha: 0.5
+  on_thr: 0.6
+  off_thr: 0.4
+  k_on: 2
+  refractory_s: 0.4
+  match_slack_s: 0.3             # detection may land this long after the cue window ends
+  target_fp_per_min: 1.0
+  thr_grid: [0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 0.95]
+  min_none_block_s: 20.0         # none windows at least this long count as free activity
