@@ -95,7 +95,9 @@ class EmgStream:
             log.warning("EmgStream without rest_std: using 1 count (call set_rest_std / calibrate_rest)")
             rest_std = [1.0, 1.0]
         self.rest_std = np.asarray(rest_std, np.float64)
-        self.pending = np.zeros((0, 2))
+        self.rail_lo, self.rail_hi = e.get("rail_lo", 8), e.get("rail_hi", 4087)
+        self.rail_frac = e.get("rail_frac", 0.2)
+        self.pending = np.zeros((0, 3))  # filtered ch1, ch2, railed flag
         self.next_idx = None    # global index of pending[0]
         self.tail = np.zeros((2, 2))
         self.recent = deque(maxlen=max(1, int(keep_recent_s * self.fs / 20)))  # filtered chunks for calibration
@@ -110,13 +112,18 @@ class EmgStream:
         return y[-int(seconds * self.fs):]
 
     def push(self, index0: int, t0: float, x: np.ndarray):
+        """-> (T (f,), features (f,10), valid (f,)). A frame is invalid when either channel sits at an ADC rail
+        for more than rail_frac of it (electrode off / floating input): EMG is then masked like a missing sensor."""
+        x = np.asarray(x)
         y = self.filt(x)
         if len(y):
             self.recent.append(y)
+        railed = ((x <= self.rail_lo) | (x >= self.rail_hi)).any(1).astype(np.float64) if len(x) else np.zeros(0)
+        y = np.concatenate([y, railed[:, None]], 1) if len(y) else np.zeros((0, 3))
         if self.next_idx is not None and index0 != self.next_idx + len(self.pending):
             log.warning("EMG index jump %s -> %s; re-aligning frames", self.next_idx + len(self.pending), index0)
             self.next_idx = None
-            self.pending = np.zeros((0, 2))
+            self.pending = np.zeros((0, 3))
         if self.next_idx is None:
             skip = (-index0) % self.L
             y = y[skip:]
@@ -126,15 +133,17 @@ class EmgStream:
         start_idx = self.next_idx
         if nf == 0:
             self.pending = buf
-            return np.zeros(0), np.zeros((0, N_EMG), np.float32)
+            return np.zeros(0), np.zeros((0, N_EMG), np.float32), np.zeros(0, bool)
         used = buf[: nf * self.L]
+        valid = used[:, 2].reshape(nf, self.L).mean(1) <= self.rail_frac
+        used = used[:, :2]
         self.pending = buf[nf * self.L:]
         self.next_idx = start_idx + nf * self.L
         last_idx = start_idx + self.L * np.arange(1, nf + 1) - 1
         T = t0 + (last_idx - index0) / self.fs
         full = np.concatenate([self.tail, used]) / self.rest_std
         self.tail = used[-2:].copy()
-        return T, self._features(full, nf)
+        return T, self._features(full, nf), valid
 
     def _features(self, full: np.ndarray, nf: int) -> np.ndarray:
         L, thr = self.L, self.thr
@@ -292,21 +301,26 @@ class HandStream:
 class StreamFeaturizer:
     """Push raw chunks of any size, pull aligned 50 Hz frames (T, X (F,D), M (F,3))."""
 
-    def __init__(self, cfg: dict, rest_std=None, img_w: int | None = None, img_h: int | None = None):
+    def __init__(self, cfg: dict, rest_std=None, img_w: int | None = None, img_h: int | None = None,
+                 sensors=MODALITIES, emg_valid: bool = True):
         self.cfg = cfg
+        self.enabled = np.array([m in sensors for m in MODALITIES])
+        self.enabled[0] &= bool(emg_valid)
         self.emg = EmgStream(cfg, rest_std)
         self.imu = ImuStream(cfg)
         self.hand = HandStream(cfg, img_w or cfg["hand"]["default_img_w"], img_h or cfg["hand"]["default_img_h"])
         self.max_wait = cfg["frame"]["max_wait_s"]
         self.pT: list[np.ndarray] = []
         self.pE: list[np.ndarray] = []
+        self.pV: list[np.ndarray] = []
         self.last_T = None
 
     def push_emg(self, index0: int, t0: float, x):
-        T, f = self.emg.push(index0, t0, x)
+        T, f, v = self.emg.push(index0, t0, x)
         if len(T):
             self.pT.append(T)
             self.pE.append(f)
+            self.pV.append(v)
             self.last_T = float(T[-1])
 
     def push_imu(self, t0: float, x, t=None):
@@ -323,37 +337,53 @@ class StreamFeaturizer:
             return np.zeros(0), np.zeros((0, D), np.float32), np.zeros((0, 3), bool)
         T = np.concatenate(self.pT)
         E = np.concatenate(self.pE)
+        V = np.concatenate(self.pV)
         if force:
             n = len(T)
         else:
             ready = T <= self.last_T - self.max_wait
             lim = np.inf
-            if self._alive(self.imu.last_t):
+            if self.enabled[1] and self._alive(self.imu.last_t):
                 lim = min(lim, self.imu.last_t)
-            if self._alive(self.hand.last_t):
+            if self.enabled[2] and self._alive(self.hand.last_t):
                 lim = min(lim, self.hand.last_t + self.hand.lag)
             ready |= T <= lim + EPS_T
             n = int(np.argmin(ready)) if not ready.all() else len(T)
-        Tr, Er = T[:n], E[:n]
-        self.pT, self.pE = ([T[n:]], [E[n:]]) if n < len(T) else ([], [])
+        Tr, Er, Vr = T[:n], E[:n], V[:n]
+        self.pT, self.pE, self.pV = ([T[n:]], [E[n:]], [V[n:]]) if n < len(T) else ([], [], [])
         if n == 0:
             return np.zeros(0), np.zeros((0, D), np.float32), np.zeros((0, 3), bool)
         Fi, mi = self.imu.frames(Tr)
         Fh, mh = self.hand.frames(Tr)
         X = np.concatenate([Er, Fi, Fh], 1).astype(np.float32)
-        M = np.stack([np.ones(n, bool), mi, mh], 1)
+        M = np.stack([Vr, mi, mh], 1) & self.enabled[None, :]
+        X = apply_mask(X, M)
         self.imu.trim(Tr[-1] - 1.0)
         self.hand.trim(Tr[-1] - 1.0)
         return Tr, X, M
 
 
-def featurize_session(sess, cfg: dict, rest_std=None, chunk_s: float | None = None):
+def apply_mask(X: np.ndarray, M: np.ndarray) -> np.ndarray:
+    """Zero the features of every masked (missing / disabled) modality."""
+    for k, sl in enumerate(LAYOUT.values()):
+        X[~M[:, k], sl] = 0.0
+    return X
+
+
+def sensor_key(sensors) -> str:
+    return "+".join(m for m in MODALITIES if m in sensors)
+
+
+def featurize_session(sess, cfg: dict, rest_std=None, chunk_s: float | None = None, sensors=MODALITIES):
     """Run a whole session through StreamFeaturizer. chunk_s=None pushes everything at once;
     otherwise pushes interleaved chunks in time order (exactly like live)."""
     if rest_std is None:
         rest_std = estimate_rest_std(sess.emg, sess.emg_t, sess.rest_periods, cfg)
     w, h = sess.img_size(cfg)
-    sf = StreamFeaturizer(cfg, rest_std, w, h)
+    emg_valid = sess.meta.get("emg_valid", True) is not False
+    if not emg_valid:
+        log.info("%s: meta.emg_valid=false -> EMG masked for the whole session", sess.id)
+    sf = StreamFeaturizer(cfg, rest_std, w, h, sensors, emg_valid)
     if len(sess.emg) == 0:
         raise ValueError(f"{sess.id}: no EMG")
     if chunk_s is None:

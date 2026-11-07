@@ -76,6 +76,9 @@ def test_control_server(trained):
         assert cc.request({"cmd": "load", "name": "does_not_exist"})["ok"] is False
         r = cc.request({"cmd": "load", "name": str(out)})
         assert r["ok"] and r["classes"] == ["none"] + GESTURES
+        assert cc.request({"cmd": "start", "sensors": ["imu", "bogus"]})["ok"] is False
+        r = cc.request({"cmd": "start", "sensors": ["imu", "emg"]})
+        assert r["ok"] and r["sensors"] == ["emg", "imu"] and "recall" in r["accuracy"]
         assert cc.request({"cmd": "start"})["ok"] and cc.request({"cmd": "status"})["state"] == "running"
         assert cc.request({"cmd": "calibrate_rest", "seconds": 3})["ok"] is False  # no EMG stream
         assert cc.request({"cmd": "train", "sessions": ["nope"]})["ok"] is False

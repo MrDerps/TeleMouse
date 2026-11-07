@@ -70,14 +70,15 @@ def test_event_metrics_matching():
               {"label": "tap", "kind": "instant", "cue": (5.0, 7.0), "span": (5.5, 5.8)},
               {"label": "hold", "kind": "hold", "cue": (9.0, 12.0), "span": (9.5, 11.5)}]
     events = [{"t": 1.85, "id": "tap", "kind": "instant"},
-              {"t": 2.0, "id": "tap", "kind": "instant"},      # duplicate in same window -> FP
+              {"t": 2.0, "id": "tap", "kind": "instant"},      # repeat in its own window -> neutral
+              {"t": 6.0, "id": "hold", "kind": "start"},        # wrong gesture in a tap window -> FP
               {"t": 9.6, "id": "hold", "kind": "start"},
               {"t": 11.6, "id": "hold", "kind": "end"},         # ends are not counted as detections
               {"t": 20.0, "id": "tap", "kind": "instant"}]      # in free activity -> FP
     m = event_metrics(events, trials, [(15.0, 75.0)], CL, slack=0.3)
     g = m["per_gesture"]
-    assert g["tap"]["tp"] == 1 and g["tap"]["fp"] == 2 and g["tap"]["n"] == 2
-    assert g["hold"]["tp"] == 1 and g["hold"]["recall"] == 1.0
+    assert g["tap"]["tp"] == 1 and g["tap"]["fp"] == 1 and g["tap"]["n"] == 2
+    assert g["hold"]["tp"] == 1 and g["hold"]["fp"] == 1 and g["hold"]["recall"] == 1.0
     assert abs(m["fp_per_min"] - 1.0) < 1e-9
     assert abs(g["tap"]["latency_ms"] - 50) < 1e-6 and abs(g["hold"]["latency_ms"] - 100) < 1e-6
 

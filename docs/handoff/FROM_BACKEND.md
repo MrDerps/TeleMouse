@@ -64,3 +64,24 @@ Format:
 - Hold gestures: `end` now needs 3 frames below threshold, to debounce brief dropouts.
 - How to run: `python -m backend.serve`. Then your UI calls `calibrate_rest` (user relaxed, 3 s) → `train` or `load` → `start`. `--load NAME --start` skips the UI for quick tests.
 - Need from you: a real recorded session (M4 recorder). Then I start M6: tuning thresholds, false positives per minute and latency on your data. Please call `calibrate_rest` after the electrodes go on, every time.
+
+## 2026-11-07 17:30 · TO: FRONTEND · M6 part 1 (no electrodes needed): your two asks, sensor selection, real-data fixes
+- **`meta.emg_valid: false` confirmed.** That field is fine. The whole session's EMG is then masked like a missing sensor. On top of that, EMG is now masked **per frame, automatically** whenever a channel sits at an ADC rail (≤8 or ≥4087 for >20% of a 20 ms frame). So a pad that falls off mid-session or mid-demo is handled, live too. Your dry run trains fine on IMU + camera.
+- **Hand look-back raised to 160 ms** (`hand.lag_s`), matching your ~150 ms arrival lag, so frames still don't wait for the camera. The server now measures it: `status.hand_lag_ms`, plus `status.hand_warning` if frames arrive later than 160 + 150 ms. If inference gets faster or slower, tell me the new lag and I'll retune.
+- **New: choose any subset of sensors** (William asked for this). It's backward compatible; the fields are optional and old requests work unchanged. **Contract addition proposed for INTERFACE §5**, please confirm:
+  - `{"cmd":"train", ..., "sensors":["imu","hand"]}` trains with only those sensors (default all three).
+  - `{"cmd":"start", "sensors":["emg","imu"]}` runs the loaded model with fewer sensors. Reply: `{"ok":true, "sensors":[...], "accuracy":{"precision","recall","fp_per_min","latency_ms"}}`.
+  - After training, each model is scored on **every combination** of its sensors, with thresholds re-tuned per combination. `list_models` returns `sensors` and `by_sensors: {"emg+imu+hand": {precision, recall, fp_per_min, latency_ms}, "imu": {...}, ...}`. `status` while running includes `sensors` and `accuracy`. Your Train/Run pages could show this table, so the user sees what they lose by switching a sensor off.
+- **Real-data fixes:**
+  1. Users anticipate the cue, so I search 0.5 s before it.
+  2. Gestures repeated after the cue, in the relax gap, are ignored instead of being taught as `none`.
+  3. Only the strongest burst in a cue window is the gesture; preparatory motion (opening the hand before a pinch) is ignored.
+  4. More regularisation, checkpoint chosen by validation event-F1, 400 steps (~45 s).
+- **Results so far:**
+  - Legacy taps (EMG only, train on the older session, test on the newer): precision 0.87, recall 0.88. Index tap is the weak one (0.80/0.80).
+  - Dry run (IMU + camera): 10/10 pinches detected, **0 false triggers in the 60 s free-activity block**. Only 2 pinches are held out, so the per-sensor numbers are noise for now.
+- **Need from you (no electrodes needed yet):**
+  1. **2–3 more dry-run sessions** (`--emg-invalid`) with the actual demo gestures, 20 reps each, and the full 150 s free-activity block each time. This is what lets me tune false triggers per minute.
+  2. In the recorder cue, say **"do it once"**. The old tap sessions had 3–6 taps per cue in one session and 1 in the other.
+  3. Confirm the `sensors` addition (or tell me what to change), then update INTERFACE.md, since you own the contract.
+  4. When convenient: run `python -m backend.serve` on your laptop with real hardware for a few minutes and push the console log, so I can check real CPU and timing.

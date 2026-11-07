@@ -7,14 +7,14 @@ import numpy as np
 import torch
 
 from backend.common.config import deep_update
-from backend.data.features import D, StreamFeaturizer
+from backend.data.features import D, MODALITIES, StreamFeaturizer, sensor_key
 from backend.eval.events import EventDetector
 
 log = logging.getLogger(__name__)
 
 
 class LiveEngine:
-    def __init__(self, cfg: dict, model, meta: dict, norm, rest_std):
+    def __init__(self, cfg: dict, model, meta: dict, norm, rest_std, sensors=None):
         fc = meta.get("feature_cfg", {})
         if "hand" in fc and "lag_s" not in fc["hand"]:  # models trained before hand lag existed
             fc = deep_update(fc, {"hand": {"lag_s": 0.0}})
@@ -22,11 +22,15 @@ class LiveEngine:
         self.model, self.meta, self.norm = model, meta, norm
         self.classes = meta["classes"]
         self.W = int(meta.get("live_window_frames", 96))
-        self.sf = StreamFeaturizer(self.cfg, rest_std)
+        trained = meta.get("sensors", list(MODALITIES))
+        self.sensors = [m for m in MODALITIES if m in (sensors or trained)]
+        self.sf = StreamFeaturizer(self.cfg, rest_std, sensors=self.sensors)
+        by = meta.get("by_sensors", {}).get(sensor_key(self.sensors), {})
+        self.accuracy = {k: by[k] for k in ("precision", "recall", "fp_per_min", "latency_ms") if k in by}
+        thresholds = by.get("thresholds") or meta.get("thresholds", {})
         self.Z = np.zeros((D, self.W), np.float32)
         self.M = np.zeros((3, self.W), np.float32)
-        self.det = EventDetector.from_config(self.classes, meta["kinds"], cfg, meta.get("thresholds", {}),
-                                             meta.get("events", {}))
+        self.det = EventDetector.from_config(self.classes, meta["kinds"], cfg, thresholds, meta.get("events", {}))
         self.n_frames = 0
 
     def set_rest_std(self, s):

@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 import numpy as np
 
 from backend.common.config import repo_path
-from backend.data.features import featurize_session
+from backend.data.features import MODALITIES, featurize_session
 from backend.data.labels import IGNORE, localise
 from backend.data.session import Session, load_session
 
@@ -45,15 +45,16 @@ def gesture_catalog(cfg, sessions: list[Session]) -> dict[str, dict]:
     return cat
 
 
-def build_session(sess: Session, classes: list[str], kinds: dict[str, str], cfg: dict) -> SessionData:
-    T, X, M, rest_std = featurize_session(sess, cfg)
+def build_session(sess: Session, classes: list[str], kinds: dict[str, str], cfg: dict,
+                  sensors=MODALITIES) -> SessionData:
+    T, X, M, rest_std = featurize_session(sess, cfg, sensors=sensors)
     y, trials, score = localise(T, X, M, sess.labels, classes, kinds, cfg, sess.rest_periods)
     blocks = [(r["t_start"], r["t_end"]) for r in sess.labels
               if r["label"] == "none" and r["t_end"] - r["t_start"] >= cfg["events"]["min_none_block_s"]]
     return SessionData(sess.id, T, X, M, y, trials, blocks, rest_std, score)
 
 
-def load_dataset(paths, gestures: list[str] | None, cfg: dict):
+def load_dataset(paths, gestures: list[str] | None, cfg: dict, sensors=MODALITIES):
     sessions = [load_session(p) for p in paths]
     cat = gesture_catalog(cfg, sessions)
     if not gestures:
@@ -64,7 +65,7 @@ def load_dataset(paths, gestures: list[str] | None, cfg: dict):
         raise ValueError(f"no recorded trials for gestures: {missing}")
     classes = ["none"] + list(gestures)
     kinds = {g: cat.get(g, {}).get("kind", "instant") for g in gestures}
-    data = [build_session(s, classes, kinds, cfg) for s in sessions]
+    data = [build_session(s, classes, kinds, cfg, sensors) for s in sessions]
     assign_split(data, cfg)
     return data, classes, kinds
 
@@ -82,17 +83,16 @@ def assign_split(data: list[SessionData], cfg: dict, seed: int | None = None):
     d = data[0]
     split = np.zeros(len(d.T), np.int64)
     frac = cfg["split"]["val_frac"]
+    cues = sorted({(t["cue"], t["label"]) for t in d.trials})  # unique cue windows
     by_label: dict[str, list[int]] = {}
-    for k, t in enumerate(d.trials):
-        by_label.setdefault(t["label"], []).append(k)
-    cues = sorted(d.trials, key=lambda t: t["cue"][0])
-    for lab, ks in by_label.items():
-        n_val = max(1, int(round(frac * len(ks))))
-        for k in rng.choice(ks, n_val, replace=False):
-            t = d.trials[k]
-            j = cues.index(t)
-            lo = 0.5 * (cues[j - 1]["cue"][1] + t["cue"][0]) if j > 0 else t["cue"][0] - 1.0
-            hi = 0.5 * (t["cue"][1] + cues[j + 1]["cue"][0]) if j + 1 < len(cues) else t["cue"][1] + 1.0
+    for j, (_, lab) in enumerate(cues):
+        by_label.setdefault(lab, []).append(j)
+    for lab, js in by_label.items():
+        n_val = max(1, int(round(frac * len(js))))
+        for j in rng.choice(js, n_val, replace=False):
+            (a, b), _ = cues[j]
+            lo = 0.5 * (cues[j - 1][0][1] + a) if j > 0 else a - 1.0
+            hi = 0.5 * (b + cues[j + 1][0][0]) if j + 1 < len(cues) else b + 1.0
             split[(d.T >= lo) & (d.T < hi)] = 1
     for a, b in d.none_blocks:
         cut = b - frac * (b - a)

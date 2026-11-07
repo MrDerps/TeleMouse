@@ -3,10 +3,16 @@
 Activity score per frame = max over available modalities of a robust z-score (vs relax baselines) of:
   EMG: mean log-RMS of the two channels;  IMU: |gyro|;  hand: wrist speed + landmark shape speed.
 Inside a gesture cue window, frames with score > max(k_abs, k_rel * window peak) are active; spans closer
-than merge_gap are merged. instant -> the span with the largest integrated score; hold -> first..last active.
+than merge_gap are merged. instant -> the span with the largest integrated score is the occurrence; other strong
+spans (peak >= burst_rel x window peak: a repeat, or a preparatory phase such as opening the hand before a pinch)
+are IGNORED, not taught as `none` (with labels.multi_burst=true every strong span becomes its own occurrence
+instead); hold -> first..last active.
 Frames in the span get the gesture label, frames just outside it (edge_ignore_s) are ignored (-1), everything
 else is `none` (0). Cue windows of gestures not in the class list are ignored entirely (not called `none`).
 If nothing is active, fall back to the window centre (logged).
+Unlabelled relax gaps are `none` only where they are quiet: clearly active gap frames (e.g. the user still
+repeating the previous gesture after its cue ended) are ignored, so real gestures are never taught as `none`.
+Explicitly labelled `none` windows (rest, free activity) stay `none` whatever happens in them.
 """
 from __future__ import annotations
 
@@ -46,6 +52,18 @@ def activity_score(X, M, baseline: np.ndarray, cfg: dict) -> tuple[np.ndarray, d
     sig = modality_signals(X, M)
     z = {}
     present = {"emg": M[:, 0], "gyro": M[:, 1], "hand": M[:, 2]}
+    # hand features at frame T describe the hand at T - hand.lag_s (live look-back). For LABELS we want the true
+    # motion time, so shift the hand signal back to line it up with EMG/IMU (offline only; the model input is
+    # untouched). Otherwise one motion shows up twice: IMU first, camera lag_s later.
+    k_lag = int(round(cfg["hand"].get("lag_s", 0.0) / cfg["frame"]["hop_s"]))
+    if k_lag > 0:
+        for key, arr in (("hand", sig["hand"]),):
+            sh = np.zeros_like(arr)
+            sh[:-k_lag] = arr[k_lag:]
+            sig[key] = sh
+        ph = np.zeros_like(present["hand"])
+        ph[:-k_lag] = present["hand"][k_lag:]
+        present["hand"] = ph
     for k, x in sig.items():
         b = baseline & present[k]
         zz = _robust_z(x, b, lc["floors"][k]) if b.sum() >= 10 else np.zeros(len(x))
@@ -91,15 +109,33 @@ def localise(T, X, M, labels: list[dict], classes: list[str], kinds: dict[str, s
     score, z = activity_score(X, M, baseline, cfg)
 
     y = np.zeros(F, np.int64)
+    in_none_label = np.zeros(F, bool)
+    for r in labels:
+        if r["label"] == "none":
+            in_none_label |= (T >= r["t_start"]) & (T < r["t_end"])
+    gap = ~in_cue & ~in_none_label
+    if lc.get("ignore_active_gaps", True):
+        busy = gap & (score > lc["k_abs"])
+        pad = int(round(lc["edge_ignore_s"] / cfg["frame"]["hop_s"]))
+        if pad and busy.any():
+            busy = np.convolve(busy.astype(float), np.ones(2 * pad + 1), "same") > 0
+        y[busy & gap] = IGNORE
     trials = []
     merge = int(round(lc["merge_gap_s"] / hop))
+    merge_inst = int(round(lc.get("merge_gap_instant_s", lc["merge_gap_s"]) / hop))
     edge = int(round(lc["edge_ignore_s"] / hop))
     min_len = int(round(lc["min_span_s"] / hop))
-    for r in labels:
+    pre = lc.get("pre_cue_s", 0.0)
+    rows = sorted(labels, key=lambda r: r["t_start"])
+    for j, r in enumerate(rows):
         lab = r["label"]
         if lab == "none":
             continue
-        w = np.flatnonzero((T >= r["t_start"]) & (T < r["t_end"]))
+        # users often anticipate the cue: also search a little before it, but never into the previous window
+        a0 = r["t_start"] - pre
+        if j > 0:
+            a0 = max(a0, rows[j - 1]["t_end"])
+        w = np.flatnonzero((T >= a0) & (T < r["t_end"]))
         if len(w) == 0:
             continue
         if lab not in cls_idx:
@@ -108,27 +144,40 @@ def localise(T, X, M, labels: list[dict], classes: list[str], kinds: dict[str, s
         kind = kinds.get(lab, "instant")
         sw = score[w]
         thr = max(lc["k_abs"], lc["k_rel"] * sw.max())
-        spans = _spans(sw > thr, merge)
+        spans = _spans(sw > thr, merge if kind == "hold" else merge_inst)
         fallback = not spans
         if fallback:
-            c = len(w) // 2
-            half = int(round(lc["fallback_half_s"] / hop)) if kind == "instant" else int(0.3 * len(w))
-            a, b = max(0, c - half), min(len(w), c + half)
+            cue_w = np.flatnonzero((T[w] >= r["t_start"]))  # centre of the CUE window, not the search window
+            c = int(cue_w[len(cue_w) // 2]) if len(cue_w) else len(w) // 2
+            half = int(round(lc["fallback_half_s"] / hop)) if kind == "instant" else int(0.3 * len(cue_w))
+            found = [(max(0, c - half), min(len(w), c + half))]
             log.info("fallback to window centre: %s at t=%.2f", lab, r["t_start"])
         elif kind == "hold":
-            a, b = spans[0][0], spans[-1][1]
+            found = [(spans[0][0], spans[-1][1])]
         else:
-            a, b = max(spans, key=lambda s: sw[s[0]:s[1]].sum())
-        if b - a < min_len:
-            c = (a + b) // 2
-            a, b = max(0, c - min_len // 2), min(len(w), c + (min_len + 1) // 2)
-        ga, gb = w[0] + a, w[0] + b
-        y[max(0, ga - edge):ga] = IGNORE
-        y[gb:min(F, gb + edge)] = IGNORE
-        y[ga:gb] = cls_idx[lab]
-        trials.append({"label": lab, "kind": kind, "cue": (r["t_start"], r["t_end"]),
-                       "span": (float(T[ga]), float(T[gb - 1]) + hop), "frames": (int(ga), int(gb)),
-                       "fallback": fallback, "peak": float(sw.max())})
+            pk = sw.max()
+            strong = [s for s in spans if sw[s[0]:s[1]].max() >= lc.get("burst_rel", 0.5) * pk]
+            if lc.get("multi_burst", False):
+                found = strong
+            else:
+                found = [max(spans, key=lambda s: sw[s[0]:s[1]].sum())]
+                for a, b in strong:
+                    if (a, b) != found[0]:
+                        y[max(0, w[0] + a - edge):min(F, w[0] + b + edge)] = IGNORE
+        fixed = []
+        for a, b in found:
+            if b - a < min_len:
+                c = (a + b) // 2
+                a, b = max(0, c - min_len // 2), min(len(w), c + (min_len + 1) // 2)
+            fixed.append((w[0] + a, w[0] + b))
+        for ga, gb in fixed:  # ignore edges first, so a neighbouring burst's label is not overwritten
+            y[max(0, ga - edge):ga] = IGNORE
+            y[gb:min(F, gb + edge)] = IGNORE
+        for ga, gb in fixed:
+            y[ga:gb] = cls_idx[lab]
+            trials.append({"label": lab, "kind": kind, "cue": (r["t_start"], r["t_end"]),
+                           "span": (float(T[ga]), float(T[gb - 1]) + hop), "frames": (int(ga), int(gb)),
+                           "fallback": fallback, "peak": float(sw.max()), "n_in_cue": len(fixed)})
     n_fb = sum(t["fallback"] for t in trials)
     if n_fb:
         log.warning("label localiser: %d/%d trials fell back to window centre", n_fb, len(trials))

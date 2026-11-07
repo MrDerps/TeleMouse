@@ -27,6 +27,8 @@ from backend.data.normalize import Normalizer  # noqa: E402
 from backend.data.session import resolve_sessions  # noqa: E402
 from backend.eval.evaluate import evaluate_model, summary  # noqa: E402
 from backend.eval.report import save_report  # noqa: E402
+from backend.eval.sensors import evaluate_by_sensors, format_table, save_sensor_plot  # noqa: E402
+from backend.data.features import MODALITIES  # noqa: E402
 from backend.model.augment import WindowSampler, augment  # noqa: E402
 from backend.model.io import model_dir, predict_full, save_model  # noqa: E402
 from backend.model.tcn import build_model, n_params  # noqa: E402
@@ -85,16 +87,20 @@ def val_loss(model, norm, data, w):
     return tot / max(n, 1)
 
 
-def train(paths, gestures, name, cfg, warm_start=None, progress=None):
-    """Returns (out_dir, meta). progress(frac, message) is called during training (for the live server)."""
+def train(paths, gestures, name, cfg, warm_start=None, progress=None, sensors=None):
+    """Returns (out_dir, meta). progress(frac, message) is called during training (for the live server).
+    sensors: subset of ("emg", "imu", "hand") to train with (default all); the others are masked out."""
     progress = progress or (lambda f, m: None)
+    sensors = [m for m in MODALITIES if m in (sensors or MODALITIES)]
+    if not sensors:
+        raise ValueError("sensors must include at least one of emg, imu, hand")
     t0 = time.perf_counter()
     seed = cfg["seed"]
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
     torch.set_num_threads(cfg["train"]["threads"])
     progress(0.0, "building features")
-    data, classes, kinds = load_dataset(paths, gestures, cfg)
+    data, classes, kinds = load_dataset(paths, gestures, cfg, sensors)
     log.info("classes %s, %d session(s), features in %.1fs", classes, len(data), time.perf_counter() - t0)
     Xtr = np.concatenate([d.X[d.split == 0] for d in data])
     Mtr = np.concatenate([d.M[d.split == 0] for d in data])
@@ -108,8 +114,13 @@ def train(paths, gestures, name, cfg, warm_start=None, progress=None):
     tc = cfg["train"]
     opt = torch.optim.AdamW(model.parameters(), lr=tc["lr"], weight_decay=tc["weight_decay"])
     sched = torch.optim.lr_scheduler.OneCycleLR(opt, max_lr=tc["lr"], total_steps=tc["steps"], pct_start=0.1)
-    hist = {"step": [], "train": [], "val": []}
-    best = (np.inf, None, 0)
+    hist = {"step": [], "train": [], "val": [], "val_f1": []}
+    n_val = sum(1 for d in data for t in d.trials if d.split[t["frames"][0]] == 1)
+    select = n_val >= tc.get("min_val_occurrences", 6)
+    if not select:
+        log.warning("only %d validation occurrences: keeping the final weights (checkpoint selection would be noise)",
+                    n_val)
+    best = (-np.inf, None, 0)
     run = 0.0
     model.train()
     for step in range(1, tc["steps"] + 1):
@@ -123,22 +134,31 @@ def train(paths, gestures, name, cfg, warm_start=None, progress=None):
         run = 0.98 * run + 0.02 * loss.item() if step > 1 else loss.item()
         if step % tc["eval_every"] == 0 or step == tc["steps"]:
             vl = val_loss(model, norm, data, w)
+            f1 = _val_f1(model, norm, data, classes, kinds, cfg) if select else float("nan")
+            model.train()
             hist["step"].append(step)
             hist["train"].append(run)
             hist["val"].append(vl)
-            if vl < best[0]:
-                best = (vl, {k: v.clone() for k, v in model.state_dict().items()}, step)
-            log.info("step %d  train %.4f  val %.4f  (%.0fs)", step, run, vl, time.perf_counter() - t0)
+            hist["val_f1"].append(f1)
+            if select and (f1, -vl) > (best[0], -best[3] if len(best) > 3 else -np.inf):
+                best = (f1, {k: v.clone() for k, v in model.state_dict().items()}, step, vl)
+            log.info("step %d  train %.4f  val %.4f  val event-F1 %.3f  (%.0fs)", step, run, vl, f1,
+                     time.perf_counter() - t0)
         if step % 25 == 0:
             progress(0.05 + 0.85 * step / tc["steps"], f"step {step}/{tc['steps']} loss {run:.3f}")
     if best[1] is not None:
         model.load_state_dict(best[1])
-        log.info("using best checkpoint from step %d (val %.4f)", best[2], best[0])
+        log.info("using best checkpoint from step %d (val event-F1 %.3f)", best[2], best[0])
+    else:
+        best = (float("nan"), None, tc["steps"])
     model.eval()
     t_train = time.perf_counter() - t0
     progress(0.92, "evaluating")
     predict = lambda X, M: predict_full(model, norm, X, M)  # noqa: E731
     metrics, thr, (T, P, y, events, cm, tr) = evaluate_model(predict, data, classes, kinds, cfg)
+    progress(0.95, "evaluating each sensor combination")
+    by = evaluate_by_sensors(predict, data, classes, kinds, cfg, sensors)
+    log.info("accuracy by sensors (val):\n%s", format_table(by))
     out = model_dir(cfg, name)
     meta = {"name": name, "type": "tcn", "classes": classes, "kinds": kinds,
             "created": datetime.now().isoformat(timespec="seconds"), "sessions": [p.name for p in paths],
@@ -148,14 +168,27 @@ def train(paths, gestures, name, cfg, warm_start=None, progress=None):
             "rest_std": {d.id: d.rest_std.tolist() for d in data}, "feature_cfg": {
                 k: cfg[k] for k in ("frame", "emg", "imu", "hand")},
             "train": {"steps": tc["steps"], "best_step": best[2], "seconds": round(t_train, 1), "history": hist},
-            "val_metrics": summary(metrics), "val_detail": metrics}
+            "val_metrics": summary(metrics), "val_detail": metrics,
+            "sensors": sensors, "by_sensors": by}
     save_model(out, model, meta)
     save_report(out / "report.png", f"TCN {name}  ({len(paths)} session(s), {n_params(model)} params)",
                 classes, cm, metrics, T, P, y, events, thr, t_from=(tr[0]["cue"][0] - 5) if tr else None)
     _curve(out / "curve.png", hist)
+    if by:
+        save_sensor_plot(out / "sensors.png", by, f"{name}: accuracy by sensor combination (val)")
     log.info("done in %.1fs -> %s", time.perf_counter() - t0, out)
     progress(1.0, f"trained {name}")
     return out, meta
+
+
+def _val_f1(model, norm, data, classes, kinds, cfg) -> float:
+    """Event-level F1 on validation with thresholds tuned on the fly (the metric we actually care about)."""
+    model.eval()
+    m, _, _ = evaluate_model(lambda X, M: predict_full(model, norm, X, M), data, classes, kinds, cfg)
+    p, r = m["precision"], m["recall"]
+    if not (np.isfinite(p) and np.isfinite(r)) or p + r == 0:
+        return 0.0
+    return 2 * p * r / (p + r)
 
 
 def _warm_start(model, name, cfg):
@@ -193,6 +226,8 @@ def main(argv=None):
     ap.add_argument("--synth", action="store_true", help="use backend/_synth instead of data/sessions")
     ap.add_argument("--warm-start", default=None)
     ap.add_argument("--steps", type=int, default=None)
+    ap.add_argument("--sensors", nargs="+", choices=list(MODALITIES), default=None,
+                    help="train with only these sensors (default: all three)")
     a = ap.parse_args(argv)
     if a.steps:
         cfg["train"]["steps"] = a.steps
@@ -200,11 +235,13 @@ def main(argv=None):
     paths = resolve_sessions("all" if a.sessions == ["all"] else a.sessions, [root])
     if not paths:
         raise SystemExit(f"no sessions in {root} (record some, or run `python -m backend.tools.synth` + --synth)")
-    out, meta = train(paths, a.gestures, a.name, cfg, a.warm_start)
+    out, meta = train(paths, a.gestures, a.name, cfg, a.warm_start, sensors=a.sensors)
     print(json.dumps(meta["val_metrics"], indent=2))
     for g, m in meta["val_detail"]["per_gesture"].items():
         print(f"  {g:14s} P {m['precision']:.2f} R {m['recall']:.2f} n {m['n']} "
               f"FPnone/min {m['fp_none_per_min']:.2f} lat {m['latency_ms']:.0f} ms  thr {meta['thresholds'][g]['on_thr']}")
+    print("\naccuracy by sensor combination (validation):")
+    print(format_table(meta["by_sensors"]))
 
 
 if __name__ == "__main__":

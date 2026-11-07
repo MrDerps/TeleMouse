@@ -24,6 +24,9 @@ emg:
   log_clip: 300.0                # clip amplitude features at this many x rest-noise before log
   rest_skip_s: 1.0               # skip filter transient at the start of a rest period
   rest_std_floor: 1.0            # ADC counts
+  rail_lo: 8                     # samples <= rail_lo or >= rail_hi count as clipped (pad off / floating input)
+  rail_hi: 4087
+  rail_frac: 0.2                 # frames with more clipped samples than this -> EMG masked for that frame
 
 imu:
   fs: 200
@@ -38,21 +41,28 @@ imu:
 
 hand:
   hold_s: 0.10                   # hold last valid landmarks at most this long
-  lag_s: 0.08                    # frame T uses landmarks stamped <= T - lag_s (offline AND live), so live
-                                 # frames need not wait for the webcam (~110 ms late) -> low event latency
+  lag_s: 0.16                    # frame T uses landmarks stamped <= T - lag_s (offline AND live), so live frames
+                                 # need not wait for the webcam. Jerry measured hand msgs arriving ~150 ms after t
+                                 # (114 ms calibrated latency + inference). The server reports the measured lag.
   default_img_w: 640             # used when meta.json has no img_w/img_h
   default_img_h: 480
   vel_clip: 5.0                  # wrist velocity clip (image units / s)
 
 labels:
   edge_ignore_s: 0.10            # ignore frames just outside the localised span
-  merge_gap_s: 0.15              # merge active spans separated by less than this
+  merge_gap_s: 0.15              # hold: merge active spans separated by less than this
+  merge_gap_instant_s: 0.04      # instant: keep rapid repeated taps (~60-100 ms apart) as separate occurrences
   min_span_s: 0.10
-  k_abs: 4.0                     # activity must exceed this robust z ...
+  k_abs: 3.0                     # activity must exceed this robust z ... (real IMU+camera pinches peak ~3-5)
   k_rel: 0.30                    # ... and this fraction of the window's peak
   smooth_frames: 5
   floors: {emg: 0.05, gyro: 5.0, hand: 0.3}   # MAD floors for robust z
   fallback_half_s: 0.25          # instant fallback span = window centre +- this
+  multi_burst: false             # instant: true = every strong burst is its own occurrence (repeated taps);
+                                 # false = strongest burst only, other strong bursts ignored (compound motions)
+  burst_rel: 0.5                 # 'strong' = peak >= this x the window's strongest burst
+  ignore_active_gaps: true       # active frames in unlabelled relax gaps -> ignore (not none)
+  pre_cue_s: 0.5                 # also search for the motion this long before the cue starts (anticipation)
 
 split:
   val_frac: 0.2                  # used when there is only one session
@@ -68,18 +78,19 @@ model:
   kernel: 3
   dilations: [1, 2, 4, 8, 16]
   branch_dilations: [1, 2]
-  dropout: 0.1
+  dropout: 0.3                   # M6: 0.1 overfit badly on real EMG (val loss best at step ~150 of 800)
 
 train:
-  steps: 800                     # ~1.75 min on a laptop CPU (~130 ms/step incl. augmentation)
+  steps: 400                     # ~1 min on a laptop CPU. M6: on real data the best checkpoint is at 100-200
   batch: 32
   win_frames: 160                # 3.2 s training windows (100 labelled frames after warm-up)
   warmup_frames: 60              # no loss on the first frames of a window (not enough history)
   lr: 0.003
-  weight_decay: 0.001
+  weight_decay: 0.01
   class_weight_pow: 0.5          # weight = (1/freq)^pow, normalised
   gesture_window_frac: 0.5       # fraction of windows centred on a gesture span
-  eval_every: 200
+  eval_every: 50
+  min_val_occurrences: 6         # fewer validation gestures than this -> keep final weights (no selection)
   threads: 4
   aug:
     time_warp: 0.10

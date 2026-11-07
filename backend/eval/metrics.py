@@ -14,22 +14,28 @@ def onsets(events: list[dict]) -> list[dict]:
 def event_metrics(events: list[dict], trials: list[dict], none_blocks: list[tuple[float, float]],
                   classes: list[str], slack: float) -> dict:
     """trials: validation trials (label, kind, cue, span). none_blocks: free-activity windows in validation.
-    A detection of g is a TP if it falls in an unmatched cue window of a g trial (+slack)."""
+    A detection of g is a TP if it falls in an unmatched cue window of a g trial (+slack). A further detection of g
+    inside an already-matched g cue window (the user repeated the gesture) is neutral: neither TP nor FP."""
     gest = [c for c in classes if c != "none"]
     det = onsets(events)
     matched = set()
     tp = {g: 0 for g in gest}
     fp = {g: 0 for g in gest}
     lat = {g: [] for g in gest}
+    def inside(e, tr):  # cue window, extended back to the localised motion (users anticipate the cue)
+        return min(tr["cue"][0], tr["span"][0]) <= e["t"] <= tr["cue"][1] + slack
+
     for e in det:
         hit = None
         for k, tr in enumerate(trials):
             if k in matched or tr["label"] != e["id"]:
                 continue
-            if tr["cue"][0] <= e["t"] <= tr["cue"][1] + slack:
+            if inside(e, tr):
                 hit = k
                 break
         if hit is None:
+            if any(k in matched and tr["label"] == e["id"] and inside(e, tr) for k, tr in enumerate(trials)):
+                continue  # repeat inside its own cue window
             fp[e["id"]] += 1
         else:
             matched.add(hit)

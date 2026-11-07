@@ -55,6 +55,14 @@ def test_masked_branch_ignores_its_features(cfg):
         assert torch.allclose(m(Z, M), m(Z2, M), atol=1e-6)
 
 
+def test_train_with_sensor_subset(sess, cfg, tmp_path):
+    from backend.train import train
+    c = {**cfg, "paths": {**cfg["paths"], "models": str(tmp_path)},
+         "train": {**cfg["train"], "steps": 20, "eval_every": 20, "batch": 8}}
+    out, meta = train([sess.path], ["swipe_left"], "imu_only", c, sensors=["imu"])
+    assert meta["sensors"] == ["imu"] and list(meta["by_sensors"]) == ["imu"]
+
+
 def test_augment_shapes(sess, cfg):
     data, classes, kinds = load_dataset([sess.path], None, cfg)
     rng = np.random.default_rng(0)
@@ -77,6 +85,9 @@ def test_smoke_train_save_load(sess, cfg, tmp_path):
     out, meta = train([sess.path], ["swipe_left", "pinch_hold"], "smoke", c)
     assert (out / "model.pt").exists() and (out / "report.png").exists()
     assert meta["classes"] == ["none", "swipe_left", "pinch_hold"]
+    # accuracy is reported for every sensor combination (7 = all non-empty subsets of 3 sensors)
+    assert len(meta["by_sensors"]) == 7 and "emg+imu+hand" in meta["by_sensors"] and "imu" in meta["by_sensors"]
+    assert (out / "sensors.png").exists()
     model, meta2, norm = load_model(out, c)
     data, _, _ = load_dataset([sess.path], ["swipe_left", "pinch_hold"], c)
     P = predict_full(model, norm, data[0].X, data[0].M)

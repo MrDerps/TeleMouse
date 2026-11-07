@@ -57,6 +57,19 @@ All hyperparameters are in `backend/config.yaml`, and all paths are relative to 
   - Status adds `lag_ms` (frame age when published) and `emg_warning` (a channel stuck rail-to-rail, i.e. an electrode is off).
 - Latency design: hand features for frame T use landmarks up to T − 80 ms (`hand.lag_s`), in training and live alike. So frames never wait for the ~110 ms-late webcam; they're published about 33 ms after their sensor time.
 
+## Choosing sensors (M6)
+Any subset of `emg`, `imu`, `hand` can be used:
+- **Training:** `python -m backend.train --sensors imu emg`, or `"sensors": [...]` in the `train` command. The other sensors are masked out, exactly as if unplugged.
+- **Live:** `{"cmd":"start","sensors":["imu","emg"]}` runs a model with fewer sensors than it was trained with. Modality dropout makes this work.
+- **Accuracy per combination:** after training, each model is evaluated with every combination of its sensors, with thresholds re-tuned per combination. Results go to the console table, `sensors.png` and `model.json` → `by_sensors`, and `list_models` returns them. The live server uses the matching thresholds and reports that accuracy in `start` replies and in `status.accuracy`.
+- **Automatic masking:** EMG is masked automatically per frame when a channel sits at an ADC rail (electrode off), and for a whole session when `meta.emg_valid` is false.
+
+## Real-data lessons (M6)
+- **Users anticipate the cue,** so the motion is searched for from 0.5 s before the cue (`labels.pre_cue_s`).
+- **Users repeat gestures or keep going after the cue.** Active frames in the unlabelled relax gaps are ignored (never taught as `none`). Within a cue window, only the strongest burst is the gesture; other strong bursts are ignored, which also covers preparatory phases such as opening the hand before a pinch. Repeats inside a gesture's own cue window are neutral in evaluation.
+- **Camera timing:** hand messages arrive about 150 ms late, so `hand.lag_s` = 0.16. For labelling only, the hand activity signal is shifted back by that lag so it lines up with the IMU.
+- **Regularisation:** the TCN overfits small real datasets. Defaults are now dropout 0.3, weight decay 0.01 and 400 steps (about 45 s). The checkpoint is chosen by validation event-F1; with fewer than 6 validation gestures, the final weights are kept.
+
 ## Why a multi-branch causal TCN (M4)
 - **Causal and streaming:** the TCN is causal, so live inference just runs the same convolution over a ~1.5 s history.
 - **Fast and stable:** it trains in about 1–3 minutes on a CPU and is stable on small datasets (~20 reps per class). LSTMs train slower. Transformers overfit at this data size.

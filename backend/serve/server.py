@@ -27,21 +27,22 @@ import zmq
 
 from backend.common import zmq_io as zio
 from backend.common.config import load_config, repo_path
-from backend.data.features import EmgFilter, robust_std
+from backend.data.features import MODALITIES, EmgFilter, robust_std, sensor_key
 from backend.model.io import list_models, load_model
 from backend.serve.engine import LiveEngine
 
 log = logging.getLogger("serve")
 
 
-def _train_worker(paths, gestures, name, cfg, q):
+def _train_worker(paths, gestures, name, cfg, q, sensors=None):
     """Runs in a child process."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s train-worker: %(message)s")
     try:
         from pathlib import Path
 
         from backend.train import train
-        _, meta = train([Path(p) for p in paths], gestures, name, cfg, progress=lambda f, m: q.put(("progress", f, m)))
+        _, meta = train([Path(p) for p in paths], gestures, name, cfg,
+                        progress=lambda f, m: q.put(("progress", f, m)), sensors=sensors)
         q.put(("done", name, meta["val_metrics"]))
     except BaseException as e:  # noqa: BLE001
         q.put(("error", f"{type(e).__name__}: {e}", traceback.format_exc()))
@@ -108,6 +109,8 @@ class Server:
         self.train_proc, self.train_q = None, None
         self.progress, self.message, self.error = 0.0, "ready", None
         self.lags = deque(maxlen=250)
+        self.hand_lags = deque(maxlen=90)
+        self.sensors = None           # sensors requested in `start` (None = the model's own)
         self.sensor_status = {}
         self._last_state = None
         torch.set_num_threads(1)
@@ -126,6 +129,17 @@ class Server:
               "message": self.message}
         if self.lags:
             st["lag_ms"] = round(float(np.median(self.lags)) * 1000, 1)  # extra: frame age when published
+        if self.hand_lags:
+            hl = float(np.median(self.hand_lags))
+            st["hand_lag_ms"] = round(hl * 1000, 1)  # extra: how late camera frames arrive
+            look = self.cfg["hand"]["lag_s"] + self.cfg["frame"]["max_wait_s"]
+            if hl > look:
+                st["hand_warning"] = (f"camera frames arrive {hl * 1000:.0f} ms late (> {look * 1000:.0f} ms budget): "
+                                      "hand data is mostly too old to use; raise hand.lag_s and retrain")
+        if self.engine is not None:
+            st["sensors"] = self.engine.sensors
+            if self.engine.accuracy:
+                st["accuracy"] = self.engine.accuracy  # extra: validation accuracy of this model+sensors
         rail = self.monitor.railed_channels()
         if rail:
             st["emg_warning"] = f"EMG channel(s) {rail} look disconnected (rail-to-rail); check electrodes"
@@ -150,16 +164,24 @@ class Server:
         if cmd == "start":
             if self.meta is None:
                 return {"ok": False, "error": "no model loaded"}
-            self.engine = LiveEngine(self.cfg, self._model, self.meta, self._norm, self.current_rest_std())
+            sensors = self._sensors_arg(req)
+            if isinstance(sensors, dict):
+                return sensors
+            self.sensors = sensors
+            self.engine = LiveEngine(self.cfg, self._model, self.meta, self._norm, self.current_rest_std(), sensors)
             self.running, self.error = True, None
-            self.set_message(f"running {self.model_name}")
-            return {"ok": True}
+            acc = self.engine.accuracy
+            extra = (f" (val recall {acc['recall']:.2f}, precision {acc['precision']:.2f})"
+                     if acc.get("recall") is not None else "")
+            self.set_message(f"running {self.model_name} with {sensor_key(self.engine.sensors)}{extra}")
+            return {"ok": True, "sensors": self.engine.sensors, "accuracy": acc}
         if cmd == "stop":
             self.running = False
             self.set_message("stopped")
             return {"ok": True}
         if cmd == "list_models":
-            return {"ok": True, "models": [{k: m[k] for k in ("name", "classes", "created", "val_metrics")}
+            return {"ok": True, "models": [{k: m.get(k) for k in ("name", "classes", "created", "val_metrics",
+                                                                   "sensors", "by_sensors")}
                                            for m in list_models(self.cfg) if m.get("type") == "tcn"]}
         if cmd == "calibrate_rest":
             s = float(req.get("seconds", 3))
@@ -182,13 +204,27 @@ class Server:
             return {"ok": False, "error": f"no sessions found in {[str(r) for r in self.roots]}"}
         name = req.get("name") or time.strftime("model_%Y%m%d_%H%M%S")
         gestures = req.get("gestures") or None
+        sensors = self._sensors_arg(req)
+        if isinstance(sensors, dict):
+            return sensors
         self.train_q = mp.get_context("spawn").Queue()
         self.train_proc = mp.get_context("spawn").Process(
-            target=_train_worker, args=([str(p) for p in paths], gestures, name, self.cfg, self.train_q), daemon=True)
+            target=_train_worker, args=([str(p) for p in paths], gestures, name, self.cfg, self.train_q, sensors),
+            daemon=True)
         self.train_proc.start()
         self.progress, self.error = 0.0, None
         self.set_message(f"training {name} on {len(paths)} session(s)")
         return {"ok": True}
+
+    @staticmethod
+    def _sensors_arg(req):
+        """Optional "sensors": ["emg","imu","hand"] subset. Returns list, None, or an error reply dict."""
+        s = req.get("sensors")
+        if s is None:
+            return None
+        if not isinstance(s, list) or not s or any(m not in MODALITIES for m in s):
+            return {"ok": False, "error": f"sensors must be a non-empty subset of {list(MODALITIES)}"}
+        return [m for m in MODALITIES if m in s]
 
     def cmd_load(self, name):
         if not name:
@@ -196,7 +232,7 @@ class Server:
         model, meta, norm = load_model(name, self.cfg)
         self._model, self.meta, self._norm, self.model_name = model, meta, norm, meta["name"]
         if self.running:  # hot swap
-            self.engine = LiveEngine(self.cfg, model, meta, norm, self.current_rest_std())
+            self.engine = LiveEngine(self.cfg, model, meta, norm, self.current_rest_std(), self.sensors)
         self.error = None
         self.set_message(f"loaded {self.model_name} ({len(meta['classes']) - 1} gestures)")
         return {"ok": True, "classes": meta["classes"]}
@@ -262,6 +298,8 @@ class Server:
             self.monitor.push(h, arr)
         elif topic == b"status":
             self.sensor_status = h
+        elif topic == b"hand" and "t" in h:
+            self.hand_lags.append(time.perf_counter() - float(h["t"]))
         if self.running and self.engine is not None:
             self.engine.push(topic, h, arr)
 

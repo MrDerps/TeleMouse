@@ -47,13 +47,14 @@ def augment(X, M, y, L, rng, acfg, log_clip):
     th = np.deg2rad(rng.uniform(-acfg["rot_deg"], acfg["rot_deg"]))
     R2 = np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]], np.float32)
     X[:, _H + 62:_H + 64] = X[:, _H + 62:_H + 64] @ R2.T  # wrist velocity in image plane
-    # modality dropout (never all three)
-    drop = [rng.random() < acfg["drop_emg"], rng.random() < acfg["drop_imu"], rng.random() < acfg["drop_hand"]]
-    if all(drop):
-        drop[0] = False
-    for k, d in enumerate(drop):
-        if d:
-            M[:, k] = False
+    # modality dropout among the modalities present in this window (always keep at least one)
+    present = np.flatnonzero(M.any(0))
+    p = np.array([acfg["drop_emg"], acfg["drop_imu"], acfg["drop_hand"]])
+    drop = [k for k in present if rng.random() < p[k]]
+    if len(present) and len(drop) == len(present):
+        drop.remove(drop[rng.integers(len(drop))])
+    for k in drop:
+        M[:, k] = False
     if rng.random() < acfg["hand_gap_p"]:
         g = rng.integers(25, 100)
         s = rng.integers(0, max(1, L - g))

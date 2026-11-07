@@ -61,10 +61,33 @@ def test_emg_rest_normalised(sess, cfg):
 def test_emg_stream_realigns_on_index_jump(cfg):
     s = EmgStream(cfg, [10, 10])
     x = np.full((40, 2), 2048, np.uint16)
-    T, f = s.push(3, 0.0, x)          # first 17 samples skipped to align to multiple of 20
-    assert len(T) == 1
-    T, f = s.push(1000, 1.0, x)       # gap: realign, no crash
+    T, f, v = s.push(3, 0.0, x)       # first 17 samples skipped to align to multiple of 20
+    assert len(T) == 1 and v.all()
+    T, f, v = s.push(1000, 1.0, x)    # gap: realign, no crash
     assert len(T) == 2 and np.isfinite(f).all()
+
+
+def test_railed_emg_frames_are_masked(sess, cfg):
+    import copy
+    s2 = copy.copy(sess)
+    s2.emg = sess.emg.copy()
+    t0 = sess.emg_t[0]
+    bad = (sess.emg_t > t0 + 20) & (sess.emg_t < t0 + 25)
+    s2.emg[bad] = np.where((np.arange(bad.sum()) // 8) % 2 == 0, 0, 4095)[:, None]  # floating-input square wave
+    T, X, M, _ = featurize_session(s2, cfg)
+    inside = (T > t0 + 20.1) & (T < t0 + 24.9)
+    assert not M[inside, 0].any() and (X[inside, 0:10] == 0).all()
+    assert M[(T > t0 + 30), 0].all()
+
+
+def test_emg_valid_false_and_sensor_selection(sess, cfg):
+    import copy
+    s2 = copy.copy(sess)
+    s2.meta = {**sess.meta, "emg_valid": False}
+    T, X, M, _ = featurize_session(s2, cfg)
+    assert not M[:, 0].any() and (X[:, 0:10] == 0).all()
+    T, X, M, _ = featurize_session(sess, cfg, sensors=("emg", "imu"))
+    assert not M[:, 2].any() and M[:, 1].any() and (X[:, LAYOUT["hand"]] == 0).all()
 
 
 def test_hand_hold_and_mask(cfg):
