@@ -44,17 +44,19 @@ def imu_impact(imu_t, acc):
 def cam_impact(hand_t, lm, img_w=640, img_h=480):
     """lm (K,21,3), NaN rows for no-hand -> (times, impact strength, hand_ok mask).
 
-    Impact = the hand was moving DOWN in the image (y increasing; laptop webcam facing the user,
-    hand on the desk) and then stopped: strength = downward speed before - |speed after|.
-    Unlike plain acceleration this ignores the start of the lift, which is gentle in the IMU."""
-    p = np.nanmean(lm[:, PALM, :2], axis=1) if len(lm) else np.zeros((0, 2))
-    ok = ~np.isnan(p[:, 0]) if len(p) else np.zeros(0, bool)
+    Impact = a sudden stop in any direction: strength = speed before - speed after (>= 0).
+    Unlike plain acceleration this ignores the start of a movement (speed going up), which is
+    gentle in the IMU, so it works for desk taps, slapping the other palm, etc."""
+    ok = np.isfinite(lm[:, PALM, 0]).any(axis=1) if len(lm) else np.zeros(0, bool)
     if ok.sum() < 10:
         return hand_t, np.zeros(len(hand_t)), ok
-    y = np.interp(hand_t, hand_t[ok], p[ok, 1]) * img_h                 # pixels, down = +
-    v = np.diff(y) / np.maximum(np.diff(hand_t), 1e-3)                    # between frames k and k+1
-    s = np.zeros(len(y))
-    s[1:-1] = np.maximum(0.0, np.maximum(0.0, v[:-1]) - np.abs(v[1:]))
+    p = np.array([np.nanmean(f[PALM, :2], axis=0) if o else [np.nan, np.nan] for f, o in zip(lm, ok)])
+    xy = np.stack([np.interp(hand_t, hand_t[ok], p[ok, i]) for i in range(2)], 1) * [img_w, img_h]
+    v = np.diff(xy, axis=0) / np.maximum(np.diff(hand_t), 1e-3)[:, None]    # between frames k and k+1
+    sp = np.linalg.norm(v, axis=1)
+    s = np.zeros(len(xy))
+    s[1:-1] = np.maximum(0.0, sp[:-1] - sp[1:])
+    s[~ok] = 0.0                                                            # no evidence where the hand was lost
     return hand_t, s, ok
 
 
@@ -68,7 +70,7 @@ def estimate_latency(imu_t, acc, hand_t, lm, img_w=640, img_h=480):
     gi, si = imu_impact(imu_t, acc)
     tc, sc, ok = cam_impact(hand_t, lm, img_w, img_h)
     out["hand_fraction"] = float(ok.mean())
-    if ok.mean() < 0.6:
+    if ok.mean() < 0.4:
         out["message"] = f"hand visible in only {100 * ok.mean():.0f}% of frames; keep it in view"
         return out
     # taps = clear IMU peaks (biggest first), at least 300 ms apart
