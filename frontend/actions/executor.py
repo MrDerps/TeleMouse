@@ -31,7 +31,7 @@ class Executor:
         self.kb = keyboard.Controller()
         self.lock = threading.Lock()
         self.held = {}                 # gesture id -> ("drag", button) | ("scroll", stop_event)
-        self.pointer_on = False        # toggled by a mode_toggle action (used by the pointer)
+        self.pointer_on = True         # a mode_toggle gesture turns the pointer off/on
         self.listener = None
 
     # ------------------------------------------------------------------ kill switch

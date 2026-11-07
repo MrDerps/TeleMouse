@@ -56,6 +56,11 @@ class App(QtWidgets.QMainWindow):
         self.executor = Executor(self, log=self.log)
         self.backend.on_gesture = self.executor.handle      # runs in the link thread
         self.executor.start_hotkey(self.kill)              # global F9, any window
+        from ..actions.pointer import Pointer
+        from .pointer_panel import load_settings
+        self.pointer = Pointer(lambda: self.actions_enabled and not self.killed and self.executor.pointer_on,
+                               load_settings(), log=self.log)
+        self.pointer.start()
 
         self.tabs = QtWidgets.QTabWidget()
         self.live = LiveTab(self)
@@ -128,6 +133,7 @@ class App(QtWidgets.QMainWindow):
         self.timer.stop()
         self.kill()
         self.executor.stop()
+        self.pointer.stop()
         self.sources.stop()
         self.backend.stop()
         self.sensors.stop()

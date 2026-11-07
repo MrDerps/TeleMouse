@@ -21,7 +21,7 @@ class RunTab(QtWidgets.QWidget):
         self.start_btn.clicked.connect(lambda: self.app.backend.control({"cmd": "start"}, self._reply))
         self.stop_btn = QtWidgets.QPushButton("Stop inference")
         self.stop_btn.clicked.connect(lambda: self.app.backend.control({"cmd": "stop"}, self._reply))
-        self.enable = QtWidgets.QCheckBox("Enable actions (mouse / keyboard)")
+        self.enable = QtWidgets.QCheckBox("Enable actions (clicks AND cursor movement)")
         self.enable.setChecked(False)
         self.enable.toggled.connect(self.app.set_actions_enabled)
         self.thr = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal, minimum=50, maximum=99, value=80)
@@ -52,6 +52,9 @@ class RunTab(QtWidgets.QWidget):
         lay.addWidget(self.reply)
         lay.addLayout(act)
         lay.addWidget(kill)
+        from .pointer_panel import PointerPanel
+        self.pointer_panel = PointerPanel(app)
+        lay.addWidget(self.pointer_panel)
         h = QtWidgets.QHBoxLayout()
         v = QtWidgets.QVBoxLayout()
         v.addWidget(self.big)
@@ -94,6 +97,7 @@ class RunTab(QtWidgets.QWidget):
             self.enable.blockSignals(False)
         pr = be.probs
         self.probs.set(*(pr[1:] if pr and be.online else ([], [])))
+        self.pointer_panel.refresh()
         if time.perf_counter() - self._big_t > 1.5:
             self.big.setText("—")
 
