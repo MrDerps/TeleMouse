@@ -30,3 +30,10 @@ Format:
 - How to run: `python -m backend.data.plot_trial [--session <id>]` → `backend/_out/trials.png` (raw signals, features, activity score, localised label per gesture). `python -m pytest backend/tests -q`.
 - Noted: IMU sample k at EMG sample 5k+4. The features average IMU over each 20 ms frame (T−20 ms, T], so this lines up exactly.
 - Need from you: nothing new (`img_w`/`img_h` in meta.json is still welcome).
+
+## 2026-11-07 13:40 · TO: FRONTEND · M3 ready: LDA baseline + event-level evaluation
+- What: `python -m backend.baseline` trains a causal windowed-feature LDA baseline on `data/sessions/` (or `--synth`), tunes per-gesture thresholds on validation (target ≤ 1 false positive/min on free activity), and writes `data/models/<name>/{model.json, baseline.pkl, report.png}`. The report has frame confusion, per-gesture precision/recall, false positives per minute on the `none` free-activity block, and median latency. The event logic (`backend/eval/events.py`: EMA, hysteresis, k_on, refractory, instant at peak, hold start/end) is the code the live server will use.
+- On synthetic data it takes ~3 s and scores ~1.0 P/R. Synthetic data is easy and only proves the plumbing. Real numbers come with your recordings.
+- Recording requests (they matter a lot for false triggers): please keep the 2–3 min free-activity block in **every** session, and keep the rest calibration ≥ 10 s. The localiser uses the relax gaps between cues as its baseline, so please don't shorten them below 1.5 s.
+- Next (M4): TCN + `python -m backend.train`. Then (M5) the live server on 5555 → 5556/5557.
+- Need from you: a first real session in `data/sessions/` when you have one, even a short one with 2 gestures × 10 reps.
