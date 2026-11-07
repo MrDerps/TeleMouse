@@ -1,0 +1,11 @@
+# Frontend dependencies (Python 3.12, repo-root .venv)
+numpy>=1.26
+pyzmq>=25
+pyserial>=3.5
+scipy>=1.11
+# M3+ (camera, UI, actions); installed now so the live viewer works
+PyQt6>=6.6
+pyqtgraph>=0.13
+opencv-python>=4.9
+mediapipe>=0.10.14
+pynput>=1.7
