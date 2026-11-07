@@ -47,7 +47,7 @@ def main(argv=None):
     ser.write(b"i")
     p = Parser()
     emg_c, emg_t, emg_x = [], [], []
-    imu_tag, imu_raw = [], []
+    imu_tag, imu_raw, imu_t = [], [], []
     status: StatusPacket | None = None
     first_status: StatusPacket | None = None
     info: InfoPacket | None = None
@@ -69,6 +69,7 @@ def main(argv=None):
                     emg_t.append(t)
                     emg_x.append(pk.data)
                 elif isinstance(pk, ImuPacket):
+                    imu_t.append(t)
                     imu_tag.append(pk.tag)
                     imu_raw.append(pk.raw)
                 elif isinstance(pk, StatusPacket):
@@ -122,13 +123,25 @@ def main(argv=None):
     print(f"  EMG: {len(X)} samples in {el:.1f}s  -> {rate_dev:.1f} samples/s received, counter span {span_c:.2f}s"
           f"  (ESP clock {ppm:+.0f} ppm vs host)")
     check(abs(rate_dev - 1000) < 10 or span_t < 2, f"EMG rate ~1000 Hz ({rate_dev:.1f})")
-    check(gaps == 0, f"EMG counter gaps: {gaps} ({lost} samples lost)")
+    loss = lost / max(len(X) + lost, 1)
+    check(loss < 5e-4, f"EMG counter gaps: {gaps} ({lost} samples lost = {100 * loss:.3f}%, limit 0.05%)")
+    if gaps:
+        print("        Rare single-packet losses with 0 checksum errors come from the USB link (a 64-byte block\n"
+              "        of 0xFF replaces a packet), not the firmware. The reader fills and counts them.")
     check(p.crc_errors == 0, f"checksum errors: {p.crc_errors}, skipped bytes: {p.skipped_bytes}")
     for ch in range(2):
         x = X[:, ch]
         clip = 100 * np.mean((x < 30) | (x > 4065))
         print(f"  ch{ch + 1} (GPIO{32 + ch}): mean {x.mean():6.0f}  std {x.std():6.1f}  min {x.min():4.0f}"
               f"  max {x.max():4.0f}  clipped {clip:.2f}%")
+        if clip > 30:
+            seg = x[-4000:] - x[-4000:].mean()
+            f = np.fft.rfftfreq(len(seg), 1e-3)[np.argmax(np.abs(np.fft.rfft(seg)))]
+            check(False, f"ch{ch + 1} is saturated rail-to-rail ({clip:.0f}% clipped, strongest {f:.0f} Hz)")
+            if abs(f - 60) < 2:
+                print("        -> 60 Hz mains pickup on a floating input: electrodes not on skin, a clip loose,\n"
+                      "           or the reference electrode missing. Expected with no electrodes attached.")
+            continue
         check(1500 < x.mean() < 2600, f"ch{ch + 1} rests near 2048")
         check(x.std() > 1.0, f"ch{ch + 1} is alive (not stuck)")
         if clip > 1:
@@ -139,8 +152,13 @@ def main(argv=None):
         R = np.array(imu_raw, np.float64)
         acc, gyr = R[:, 0:3] / 8192.0, R[:, 4:7] / 65.5
         steps = np.diff(tg)
-        rate = len(tg) / span_t if span_t > 0 else 0
-        print(f"  IMU: {len(tg)} samples -> {rate:.1f} Hz; tag step 5 in {100 * np.mean(steps == 5):.1f}% of samples")
+        imu_span = imu_t[-1] - imu_t[0]
+        rate = len(tg) / imu_span if imu_span > 0 else 0
+        start_delay = (tg[0] - emg_c[0]) / 1000.0
+        print(f"  IMU: {len(tg)} samples -> {rate:.1f} Hz; first sample {start_delay:.2f}s after EMG; "
+              f"tag step 5 in {100 * np.mean(steps == 5):.1f}% of samples")
+        if start_delay > 0.5:
+            print("       (the IMU took a while to come up after reset; init retries every 100 ms at boot)")
         print(f"       accel mean g {np.round(acc.mean(0), 3)}  |a| {np.linalg.norm(acc, axis=1).mean():.3f}")
         print(f"       gyro mean dps {np.round(gyr.mean(0), 2)}  std {np.round(gyr.std(0), 2)}")
         print(f"       temp {R[:, 3].mean() / 340 + 36.53:.1f} C")

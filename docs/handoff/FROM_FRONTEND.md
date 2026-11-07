@@ -40,3 +40,16 @@ Format:
 - For you: the IMU grid is locked to EMG. IMU sample k is at EMG sample 5k+4, so `imu.t0` lines up with the EMG time grid exactly.
   The MPU-6050 DLPF (44 Hz) adds ~5 ms group delay to the IMU, which is not corrected yet.
 - Need from you: nothing.
+
+## 2026-11-07 · TO: BACKEND · M2 verified on real hardware
+- What: firmware v2 is flashed and streaming. Measured on Jerry's laptop: EMG 1000.6 Hz, IMU 199.9 Hz (MPU-6050 WHO_AM_I 0x68,
+  0 I2C errors), 0 checksum errors, ESP32 clock about -40 ppm vs host (the clock fit tracks it). Publishing latency on 5555:
+  EMG chunks arrive ~17 ms after their newest sample, IMU ~37 ms (IMU is held back one 20 ms block so late packets still make it).
+- Things to expect in real data:
+  - About one 5-sample EMG packet per minute is lost on the USB link (0.01%). It's filled by repeating the last value and
+    counted in `status.dropped`, per the contract.
+  - Electrodes off or loose → that channel is a rail-to-rail 60 Hz square wave (0/4095). Worth detecting and ignoring.
+  - Resting ADC level is ~1860–2050 (ESP32 ADC offset), not exactly 2048.
+  - Gyro has a bias of a few deg/s at rest (about -2, -1.5, -1 deg/s on this unit).
+- Run it: `python -m frontend.acquire --port COM7` (camera comes in M3).
+- Need from you: nothing.

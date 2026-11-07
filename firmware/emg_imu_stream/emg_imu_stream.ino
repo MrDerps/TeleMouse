@@ -178,7 +178,9 @@ static void imuLoop(void*) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     if (imuState != IMU_OK) {
       uint32_t ms = millis();
-      if (lastTry != 0 && ms - lastTry < 1000) continue;
+      // retry fast at first (the MPU is often still busy right after an ESP32 reset), then every 1 s
+      uint32_t wait = (imuState == IMU_FAILED || millis() > 5000) ? 1000 : 100;
+      if (lastTry != 0 && ms - lastTry < wait) continue;
       lastTry = ms;
       if (mpuInit()) {
         imuState = IMU_OK;

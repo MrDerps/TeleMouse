@@ -1,6 +1,6 @@
 """Live viewer for the 5555 sensor stream (works with the simulator or real hardware).
 
-    python -m frontend.tools.viewer
+    python -m frontend.tools.viewer            (--port N to watch another port)
 
 Shows EMG ch1/ch2 (display-only filtering: 20 Hz high-pass + 60 Hz notch, plus a 25 ms RMS
 envelope), IMU accel and gyro, the hand landmarks, and the stream status.
@@ -72,8 +72,8 @@ class Streams:
         self.env_tail = full[-24:]
         return y, env
 
-    def run(self):
-        sub = P.make_sub(P.PORT_SENSORS)
+    def run(self, port=P.PORT_SENSORS):
+        sub = P.make_sub(port)
         while not self.stop.is_set():
             if not sub.poll(100):
                 continue
@@ -102,7 +102,8 @@ def main():
     from PyQt6 import QtCore, QtWidgets
 
     S = Streams()
-    th = threading.Thread(target=S.run, daemon=True)
+    port = int(sys.argv[sys.argv.index("--port") + 1]) if "--port" in sys.argv else P.PORT_SENSORS
+    th = threading.Thread(target=S.run, args=(port,), daemon=True)
     th.start()
 
     app = QtWidgets.QApplication(sys.argv)

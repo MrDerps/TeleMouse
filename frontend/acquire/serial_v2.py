@@ -105,7 +105,8 @@ class Parser:
         while True:
             j = b.find(SYNC, i)
             if j < 0:
-                keep = n - 1 if n and b[-1] == 0xA5 else n
+                # keep a trailing 0xA5 (maybe half a sync), but never one we already consumed
+                keep = n - 1 if n > i and b[-1] == 0xA5 else n
                 self._skipped(b, i, keep)
                 i = keep
                 break
