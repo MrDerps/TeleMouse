@@ -1,7 +1,11 @@
 """Pointer control (not the NN's job): moves the OS cursor from the IMU and the camera.
 
 Modes
-  * "auto" (default): the IMU gyro drives the cursor (fast: ~40 ms), the camera decides WHEN it moves
+  * "left" (default): your OTHER hand (no IMU) steers. The camera tracks the centre of its palm; an OPEN hand
+    moves the cursor, a FIST freezes it (close the fist, reposition, open again = lifting a mouse). No pointer
+    hand in view = no movement. The acquisition service decides which visible hand is which and publishes the
+    pointer hand on 5555 as `pointer_hand`.
+  * "auto": the IMU gyro drives the cursor (fast: ~40 ms), the camera decides WHEN it moves
     (only while your hand is in view, so dropping the hand out of view is the "lift the mouse" clutch) and
     takes over if the IMU is missing.
   * "imu": gyro only.  * "camera": palm position only (~150 ms behind).  * "off".
@@ -23,9 +27,18 @@ import numpy as np
 from shared import protocol as P
 
 PALM = [0, 5, 9, 13, 17]
+TIPS = [8, 12, 16, 20]
+TOPIC_POINTER_HAND = b"pointer_hand"
+OPEN_ABOVE, CLOSED_BELOW = 1.55, 1.25      # openness = mean(tip-wrist) / palm length, with hysteresis
+
+
+def openness(lm) -> float:
+    """~1.9 for an open hand, ~1.0 for a fist (scale- and distance-invariant)."""
+    palm_len = np.linalg.norm(lm[9, :2] - lm[0, :2]) + 1e-6
+    return float(np.mean(np.linalg.norm(lm[TIPS, :2] - lm[0, :2], axis=1)) / palm_len)
 
 DEFAULTS = {
-    "mode": "auto", "speed": 12.0, "accel": True, "smoothing": 0.5, "invert_x": False, "invert_y": False,
+    "mode": "left", "speed": 12.0, "accel": True, "smoothing": 0.5, "invert_x": False, "invert_y": False,
     "need_hand": True, "freeze_on_clench": True,
     # gyro axis mapping: cursor x <- sign * gyro[axis_x], cursor y <- sign * gyro[axis_y]
     # default for the documented mount (+x fingertips, -y thumb, -z up), palm down: turn right = yaw, tilt down = pitch
@@ -109,6 +122,10 @@ class Pointer:
         self.gate = ClenchGate()
         self.acc = np.zeros(2)                       # sub-pixel remainder
         self.source = "-"
+        self.left_open = False
+        self.left_prev = None
+        self.f_left = OneEuro()
+        self.openness = 0.0
         self._rec = None                             # direction calibration capture
         self._stop = threading.Event()
         self.th = threading.Thread(target=self._run, name="pointer", daemon=True)
@@ -160,7 +177,7 @@ class Pointer:
             self.mouse.move(int(step[0]), int(step[1]))
 
     def _run(self):
-        sub = P.make_sub(P.PORT_SENSORS, topics=(P.TOPIC_IMU, P.TOPIC_HAND, P.TOPIC_EMG))
+        sub = P.make_sub(P.PORT_SENSORS, topics=(P.TOPIC_IMU, P.TOPIC_HAND, P.TOPIC_EMG, TOPIC_POINTER_HAND))
         while not self._stop.is_set():
             if not sub.poll(50):
                 continue
@@ -175,6 +192,8 @@ class Pointer:
                 self._imu(a, now)
             elif topic == P.TOPIC_HAND:
                 self._hand(a, h, now)
+            elif topic == TOPIC_POINTER_HAND:
+                self._left(a, h, now)
 
     def _imu(self, a, now):
         if not np.isfinite(a).all():
@@ -194,7 +213,8 @@ class Pointer:
             self._rec.extend(g.tolist())
         mode = self.s["mode"]
         if mode not in ("auto", "imu") or not self.enabled_fn():
-            self.source = "-"
+            if mode != "left":
+                self.source = "-"
             return
         if mode == "auto" and self.s["need_hand"] and now - self.hand_seen_t > 0.4:
             self.source = "paused (hand out of view)"
@@ -218,6 +238,49 @@ class Pointer:
         if self.s["invert_y"]:
             v[1] = -v[1]
         self._move(v * dt)
+
+    def _left(self, a, h, now):
+        """Pointer-hand frame (~30 Hz): open hand moves the cursor by its palm-centre motion, fist freezes."""
+        if self.s["mode"] != "left":
+            return
+        if len(a) == 0:
+            self.left_prev, self.left_open = None, False
+            self.f_left.reset()
+            self.source = "no pointer hand in view"
+            return
+        o = openness(a)
+        self.openness = o
+        if self.left_open and o < CLOSED_BELOW:
+            self.left_open = False
+        elif not self.left_open and o > OPEN_ABOVE:
+            self.left_open = True
+            self.left_prev = None                      # don't jump on re-open
+            self.f_left.reset()
+        palm = a[PALM, :2].mean(axis=0) * np.array([h.get("img_w") or 640, h.get("img_h") or 480])
+        prev, self.left_prev = self.left_prev, palm
+        if not self.left_open:
+            self.source = f"fist: frozen (openness {o:.2f})"
+            self.left_prev = None
+            return
+        if not self.enabled_fn():
+            self.source = "-"
+            return
+        self.source = f"open hand: moving (openness {o:.2f})"
+        if prev is None:
+            return
+        d = palm - prev
+        d[0] = -d[0]                                    # webcam faces you: your right is image left
+        mc = 0.5 + 4.5 * (1 - self.s["smoothing"])
+        self.f_left.min_cutoff = mc
+        d = self.f_left(d, 1 / 30)
+        if np.linalg.norm(d) < 0.4:                     # landmark jitter
+            return
+        v = self._gain(d * 30 * self.s["speed"] / 2.5)  # image px/s -> screen px/s
+        if self.s["invert_x"]:
+            v[0] = -v[0]
+        if self.s["invert_y"]:
+            v[1] = -v[1]
+        self._move(v / 30)
 
     def _hand(self, a, h, now):
         if len(a) == 0:

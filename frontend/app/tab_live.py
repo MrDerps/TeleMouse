@@ -172,7 +172,9 @@ class LiveTab(QtWidgets.QWidget):
             self.c_gyr[i].setData(self.t_imu, snap["imu"][:, 3 + i])
         cam = self.app.sources.camera
         if cam is not None and cam.preview is not None:
-            self.camview.show_frame(*cam.preview)
+            g, ptr = self.app.sources.acq.roles
+            self.camview.show_frame(cam.preview[0], [(g["lm"] if g else None, (80, 220, 120), "gesture"),
+                                                     (ptr["lm"] if ptr else None, (255, 160, 60), "pointer")])
         else:
             self.camview.show_landmarks(snap["hand"])
         st, fresh = snap["status"], now - snap["last_msg"] < 1.5

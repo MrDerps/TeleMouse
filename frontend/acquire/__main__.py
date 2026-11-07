@@ -46,17 +46,21 @@ class Preview:
         if cam is None or cam.preview is None:
             cv2.waitKey(1)
             return
-        frame, lm = cam.preview
+        frame = cam.preview[0]
+        g, ptr = self.acq.roles
+        lm = g["lm"] if g else None
         self.hits.append((time.perf_counter(), lm is not None))
         self.hits = self.hits[-90:]
         img = frame.copy()
         h, w = img.shape[:2]
-        if lm is not None:
-            pts = [(int(x * w), int(y * h)) for x, y, _ in lm]
+        for hl, col in ((lm, (80, 220, 120)), (ptr["lm"] if ptr else None, (255, 160, 60))):
+            if hl is None:
+                continue
+            pts = [(int(x * w), int(y * h)) for x, y, _ in hl]
             for a, b in EDGES:
-                cv2.line(img, pts[a], pts[b], (80, 220, 120), 2)
+                cv2.line(img, pts[a], pts[b], col, 2)
             for p in pts:
-                cv2.circle(img, p, 3, (40, 160, 255), -1)
+                cv2.circle(img, p, 3, col, -1)
         ok = lm is not None
         cv2.rectangle(img, (0, 0), (w, 34), (0, 0, 0), -1)
         cv2.putText(img, ("HAND OK" if ok else "NO HAND") + f"  {100 * self.hand_fraction():.0f}%",

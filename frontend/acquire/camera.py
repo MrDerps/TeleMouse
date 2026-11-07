@@ -3,11 +3,12 @@
 Two threads so that slow inference never delays timestamps or lets frames pile up:
   * capture: grabs frames as fast as the camera delivers them and stamps each one with
     time.perf_counter() the moment it arrives. Keeps only the newest frame.
+  * up to `num_hands` hands per frame (default 2: the right hand gestures, the left hand points).
   * inference (N workers, default 2, each with its own landmarker): a free worker takes the
     newest frame. Two workers keep up at 30 fps even when Windows throttles the CPU on battery
     (one inference is 13-40 ms there). Results older than the last published one are dropped,
     so output stays in time order. Each worker calls
-        on_hand(t_raw, score, handedness, landmarks (21,3) or (0,3), img_w, img_h)
+        on_hands(t_raw, hands, img_w, img_h)   hands = [{"lm": (21,3), "handedness": "Left"/"Right", "score"}]
     t_raw is the arrival stamp; the caller subtracts the calibrated camera latency.
 
 Landmarks are in the raw (un-mirrored) camera image. MediaPipe labels handedness as if
@@ -46,10 +47,11 @@ def ensure_model(log=print) -> Path:
 
 
 class Camera:
-    def __init__(self, index=0, width=640, height=480, fps=30, on_hand=None, log=print, keep_frames=True,
-                 workers=2):
+    def __init__(self, index=0, width=640, height=480, fps=30, on_hands=None, log=print, keep_frames=True,
+                 workers=2, num_hands=2):
         self.index, self.width, self.height, self.fps = index, width, height, fps
-        self.on_hand = on_hand or (lambda *a: None)
+        self.on_hands = on_hands or (lambda *a: None)
+        self.num_hands = num_hands
         self.log = log
         self.keep_frames = keep_frames        # keep the newest frame + landmarks for a preview
         self.workers = workers
@@ -58,7 +60,6 @@ class Camera:
         self._last_pub_t = -1.0
         self.frames_out_of_order = 0
         self.cap = None
-        self.landmarker = None
         self._cond = threading.Condition()
         self._frame = None                    # (t_raw, frame)
         self._seq = 0
@@ -69,7 +70,7 @@ class Camera:
         self.frames_skipped = 0               # captured but replaced before inference got to them
         self.last_frame_t = 0.0
         self.infer_ms = 0.0
-        self.preview = None                   # (frame BGR, landmarks or None) for UIs
+        self.preview = None                   # (frame BGR, hands list) for UIs
         self.img_w, self.img_h = width, height
 
     # ------------------------------------------------------------------ lifecycle
@@ -81,7 +82,7 @@ class Camera:
         model = ensure_model(self.log)
         opts = vision.HandLandmarkerOptions(
             base_options=BaseOptions(model_asset_path=str(model)),
-            running_mode=vision.RunningMode.VIDEO, num_hands=1,
+            running_mode=vision.RunningMode.VIDEO, num_hands=self.num_hands,
             min_hand_detection_confidence=0.4, min_hand_presence_confidence=0.4, min_tracking_confidence=0.4)
         self.landmarkers = [vision.HandLandmarker.create_from_options(opts) for _ in range(self.workers)]
         self._mp = mp
@@ -153,13 +154,12 @@ class Camera:
                 self.log(f"[camera] landmarker error: {e}")
                 continue
             self.infer_ms = 0.9 * self.infer_ms + 0.1 * (1000 * (time.perf_counter() - t0))
-            if res.hand_landmarks:
-                lm = np.array([[p.x, p.y, p.z] for p in res.hand_landmarks[0]], np.float32)
-                cat = res.handedness[0][0]
-                score = float(cat.score)
-                hand = {"Left": "Right", "Right": "Left"}.get(cat.category_name, None)   # un-mirror
-            else:
-                lm, score, hand = np.zeros((0, 3), np.float32), 0.0, None
+            hands = []
+            for i, pts in enumerate(res.hand_landmarks or []):
+                cat = res.handedness[i][0]
+                hands.append({"lm": np.array([[p.x, p.y, p.z] for p in pts], np.float32),
+                              "handedness": {"Left": "Right", "Right": "Left"}.get(cat.category_name),  # un-mirror
+                              "score": float(cat.score)})
             with self._pub_lock:                              # keep output in time order
                 if t_raw <= self._last_pub_t:
                     self.frames_out_of_order += 1
@@ -167,5 +167,5 @@ class Camera:
                 self._last_pub_t = t_raw
                 self.frames_processed += 1
                 if self.keep_frames:
-                    self.preview = (frame, lm if len(lm) else None)
-                self.on_hand(t_raw, score, hand, lm, w, h)
+                    self.preview = (frame, hands)
+                self.on_hands(t_raw, hands, w, h)

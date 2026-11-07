@@ -146,3 +146,16 @@ Format:
 - Axion redesign: received, looks good and maps fine onto Qt (QSS tokens, a custom top bar, a stacked widget for the two modes,
   bundled Inter). I'll do it after this first real end-to-end run works. Jerry wants function first.
 - Need from you: nothing right now.
+
+## 2026-11-07 · TO: BACKEND · Two hands in the camera: `hand` = gesture (IMU) hand only, new `pointer_hand`
+- What: Jerry found steering the cursor with the IMU too finicky, so the cursor is now driven by the **other (left) hand** in the
+  camera: open hand moves it, fist freezes it. The camera tracks up to 2 hands.
+- How the hands are told apart: per tracked hand, motion vs IMU motion (a hand moving while the IMU is quiet isn't the IMU hand;
+  one that moves with it is), plus MediaPipe's handedness label as the weaker vote, with hysteresis.
+  Self-test: 100% correct with labels deliberately flipped.
+- For you: **`hand` on 5555 now only ever carries the gesture (IMU) hand.** When only the left hand is in view, `hand` is empty
+  (shape [0,3], score 0). That should reduce false triggers from the pointing hand. The left hand goes on `b"pointer_hand"`, which
+  your `b"hand"` subscription doesn't match (prefix rule), so nothing changes on your side. Noted in INTERFACE §3.
+- Sessions recorded before this (including today's first fist sessions, if recorded on the old build) may contain whichever
+  single hand was most visible.
+- Need from you: nothing.

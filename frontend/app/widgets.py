@@ -54,16 +54,20 @@ class CameraView(QtWidgets.QLabel):
         self.setStyleSheet("background:#0d1117; color:#6e7681;")
         self.setText("no camera")
 
-    def show_frame(self, frame, lm):
+    def show_frame(self, frame, items):
+        """items: [(landmarks (21,3), (b,g,r), label)]"""
         import cv2
         img = frame.copy()
         h, w = img.shape[:2]
-        if lm is not None:
+        for lm, color, label in items:
+            if lm is None or not len(lm):
+                continue
             pts = [(int(x * w), int(y * h)) for x, y, _ in lm]
             for a, b in HAND_EDGES:
-                cv2.line(img, pts[a], pts[b], (80, 220, 120), 2)
+                cv2.line(img, pts[a], pts[b], color, 2)
             for p in pts:
-                cv2.circle(img, p, 3, (40, 160, 255), -1)
+                cv2.circle(img, p, 3, color, -1)
+            cv2.putText(img, label, (pts[0][0] - 30, min(h - 8, pts[0][1] + 24)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
         rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         q = QtGui.QImage(rgb.data, w, h, 3 * w, QtGui.QImage.Format.Format_RGB888)
         self.setPixmap(QtGui.QPixmap.fromImage(q).scaled(self.size(), QtCore.Qt.AspectRatioMode.KeepAspectRatio,

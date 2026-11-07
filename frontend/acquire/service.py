@@ -16,7 +16,12 @@ import numpy as np
 from shared import protocol as P
 
 from . import config
+from .hands import HandAssigner, imu_motion_from
 from .serial_reader import SerialReader
+
+# Frontend-internal topic (INTERFACE §3 note): the non-IMU hand, used only for the cursor. It must not start
+# with b"hand", because ZeroMQ subscriptions are prefix matches and the backend subscribes to b"hand".
+TOPIC_POINTER_HAND = b"pointer_hand"
 
 SAFETY = ("SAFETY: while electrodes are on a person, the ESP32 must be powered from a battery, "
           "a power bank or an UNPLUGGED laptop. Never from a wall-powered PC.")
@@ -43,9 +48,11 @@ class Acquisition:
         self._win = {"emg": 0, "imu": 0, "cam": 0}
         self.last_status = {}
         # short history for sync calibration: IMU (t, ax, ay, az) and camera (t_raw, lm)
-        self._imu_hist = collections.deque(maxlen=200 * 30)
+        self._imu_hist = collections.deque(maxlen=200 * 30)   # (t, ax, ay, az, gx, gy, gz)
         self._hand_hist = collections.deque(maxlen=30 * 30)
         self.img_size = (640, 480)
+        self.assigner = HandAssigner(imu_hand=self.cfg.get("imu_hand", "Right"))
+        self.roles = (None, None)              # (gesture hand, pointer hand) of the latest frame, for previews
 
     # ------------------------------------------------------------------ lifecycle
     def start(self):
@@ -62,7 +69,7 @@ class Acquisition:
         if self.camera_index is not None:
             try:
                 from .camera import Camera
-                self.camera = Camera(self.camera_index, on_hand=self._on_hand, log=self.log)
+                self.camera = Camera(self.camera_index, on_hands=self._on_hands, log=self.log)
                 self.camera.start()
                 self.log(f"[acquire] camera {self.camera_index}, latency correction {1000 * self.cam_latency:.0f} ms"
                          + ("" if self.cfg.get("cam_latency_calibrated") else " (default; run sync calibration)"))
@@ -99,17 +106,31 @@ class Acquisition:
                 self._win["imu"] += int(np.isfinite(imu[:, 0]).sum())
         if imu is not None:
             for j in range(len(imu)):
-                self._imu_hist.append((imu_t0 + j / P.FS_IMU, *imu[j, :3]))
+                self._imu_hist.append((imu_t0 + j / P.FS_IMU, *imu[j, :6]))
 
-    def _on_hand(self, t_raw, score, handedness, lm, w, h):
+    def _imu_motion(self, t0, t1):
+        rows = [r for r in list(self._imu_hist)[-400:] if t0 <= r[0] <= t1 and np.isfinite(r[1])]
+        return imu_motion_from(rows)
+
+    def _on_hands(self, t_raw, hands, w, h):
+        """Camera callback: split the hands into the gesture (IMU) hand -> `hand` and the other -> `pointer_hand`."""
         self.img_size = (w, h)
-        hdr = {"t": t_raw - self.cam_latency, "score": score, "handedness": handedness, "img_w": w, "img_h": h}
+        imu_ok = bool(self.last_status.get("imu_ok"))
+        g, ptr = self.assigner.assign(t_raw, hands, w, h, self._imu_motion, self.cam_latency, imu_ok)
+        self.roles = (g, ptr)
+        t = t_raw - self.cam_latency
+        empty = np.zeros((0, 3), np.float32)
         with self.lock:
             if self.pub is None:
                 return
-            P.send_array(self.pub, P.TOPIC_HAND, hdr, lm)
+            P.send_array(self.pub, P.TOPIC_HAND,
+                         {"t": t, "score": g["score"] if g else 0.0, "handedness": g["handedness"] if g else None,
+                          "img_w": w, "img_h": h}, g["lm"] if g else empty)
+            P.send_array(self.pub, TOPIC_POINTER_HAND,
+                         {"t": t, "score": ptr["score"] if ptr else 0.0, "img_w": w, "img_h": h},
+                         ptr["lm"] if ptr else empty)
             self._win["cam"] += 1
-        self._hand_hist.append((t_raw, lm if len(lm) else None))
+        self._hand_hist.append((t_raw, g["lm"] if g else None))
 
     # ------------------------------------------------------------------ status
     def _status_loop(self):

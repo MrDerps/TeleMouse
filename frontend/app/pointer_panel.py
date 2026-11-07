@@ -8,12 +8,15 @@ from PyQt6 import QtCore, QtWidgets
 from ..acquire import config
 from ..actions.pointer import DEFAULTS
 
-MODES = [("Auto: IMU + camera (recommended)", "auto"), ("IMU only", "imu"), ("Camera only", "camera"), ("Off", "off")]
+MODES = [("Left hand (camera): open hand = move, fist = freeze", "left"), ("Auto: IMU + camera", "auto"), ("IMU only", "imu"), ("Camera only", "camera"), ("Off", "off")]
 
 
 def load_settings():
     s = dict(DEFAULTS)
-    s.update(config.load().get("pointer") or {})
+    saved = config.load().get("pointer") or {}
+    if saved.get("version", 1) < 2:          # v2 made the left-hand pointer the default
+        saved["mode"] = "left"
+    s.update(saved)
     return s
 
 
@@ -72,7 +75,7 @@ class PointerPanel(QtWidgets.QGroupBox):
         self.changed()
 
     def settings(self):
-        return {"mode": self.mode.currentData(), "speed": float(self.speed.value()),
+        return {"version": 2, "mode": self.mode.currentData(), "speed": float(self.speed.value()),
                 "smoothing": self.smooth.value() / 100, "accel": self.accel.isChecked(),
                 "need_hand": self.need_hand.isChecked(), "freeze_on_clench": self.freeze.isChecked(),
                 "invert_x": self.inv_x.isChecked(), "invert_y": self.inv_y.isChecked(), **self._axes}
