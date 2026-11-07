@@ -51,6 +51,7 @@ class Acquisition:
         self._imu_hist = collections.deque(maxlen=200 * 30)   # (t, ax, ay, az, gx, gy, gz)
         self._hand_hist = collections.deque(maxlen=30 * 30)
         self.img_size = (640, 480)
+        self.two_hands = bool(self.cfg.get("two_hands", False))
         self.assigner = HandAssigner(imu_hand=self.cfg.get("imu_hand", "Right"))
         self.roles = (None, None)              # (gesture hand, pointer hand) of the latest frame, for previews
 
@@ -69,7 +70,8 @@ class Acquisition:
         if self.camera_index is not None:
             try:
                 from .camera import Camera
-                self.camera = Camera(self.camera_index, on_hands=self._on_hands, log=self.log)
+                self.camera = Camera(self.camera_index, on_hands=self._on_hands, log=self.log,
+                                     num_hands=2 if self.two_hands else 1)
                 self.camera.start()
                 self.log(f"[acquire] camera {self.camera_index}, latency correction {1000 * self.cam_latency:.0f} ms"
                          + ("" if self.cfg.get("cam_latency_calibrated") else " (default; run sync calibration)"))
@@ -115,8 +117,11 @@ class Acquisition:
     def _on_hands(self, t_raw, hands, w, h):
         """Camera callback: split the hands into the gesture (IMU) hand -> `hand` and the other -> `pointer_hand`."""
         self.img_size = (w, h)
-        imu_ok = bool(self.last_status.get("imu_ok"))
-        g, ptr = self.assigner.assign(t_raw, hands, w, h, self._imu_motion, self.cam_latency, imu_ok)
+        if self.two_hands:
+            imu_ok = bool(self.last_status.get("imu_ok"))
+            g, ptr = self.assigner.assign(t_raw, hands, w, h, self._imu_motion, self.cam_latency, imu_ok)
+        else:                                  # one hand: whatever hand is in view is the gesture hand
+            g, ptr = (hands[0] if hands else None), None
         self.roles = (g, ptr)
         t = t_raw - self.cam_latency
         empty = np.zeros((0, 3), np.float32)
@@ -126,9 +131,10 @@ class Acquisition:
             P.send_array(self.pub, P.TOPIC_HAND,
                          {"t": t, "score": g["score"] if g else 0.0, "handedness": g["handedness"] if g else None,
                           "img_w": w, "img_h": h}, g["lm"] if g else empty)
-            P.send_array(self.pub, TOPIC_POINTER_HAND,
-                         {"t": t, "score": ptr["score"] if ptr else 0.0, "img_w": w, "img_h": h},
-                         ptr["lm"] if ptr else empty)
+            if self.two_hands:
+                P.send_array(self.pub, TOPIC_POINTER_HAND,
+                             {"t": t, "score": ptr["score"] if ptr else 0.0, "img_w": w, "img_h": h},
+                             ptr["lm"] if ptr else empty)
             self._win["cam"] += 1
         self._hand_hist.append((t_raw, g["lm"] if g else None))
 

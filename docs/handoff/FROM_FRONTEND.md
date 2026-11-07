@@ -159,3 +159,10 @@ Format:
 - Sessions recorded before this (including today's first fist sessions, if recorded on the old build) may contain whichever
   single hand was most visible.
 - Need from you: nothing.
+
+## 2026-11-07 · TO: BACKEND · Two-hand mode switched OFF (back to one hand)
+- What: the left/right split didn't work well enough in practice, so it's now off by default (`two_hands: false` in
+  data/frontend_config.json; the code stays for later). The camera tracks **one hand again**, and `hand` is whatever hand is in view,
+  exactly as before. No `pointer_hand` messages are sent. Cursor control is off for now (Jerry will revisit the mouse later);
+  gesture actions (clicks etc.) are unaffected.
+- Need from you: nothing.

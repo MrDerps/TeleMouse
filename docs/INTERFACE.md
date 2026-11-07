@@ -41,8 +41,8 @@ Decode it with `np.frombuffer(payload, dtype).reshape(shape)`.
 | `b"hand"` | every camera frame (~30 Hz) | `t` (latency-corrected), `score` (0–1, 0 = no hand), `handedness` ("Left"/"Right"/null), `img_w`, `img_h`, `dtype`="<f4", `shape`=[21,3] or [0,3] when there's no hand | MediaPipe landmarks, x and y normalised to [0,1] of the image, z = MediaPipe relative depth |
 | `b"status"` | 1 Hz | `emg_ok`, `imu_ok`:bool, `cam_ok`, `emg_rate`, `imu_rate`, `cam_fps`, `dropped`, `battery_warning_shown` | none |
 
-`hand` carries only the **gesture hand** (the one wearing the IMU). When two hands are visible, the frontend
-decides which is which (motion vs IMU, plus MediaPipe's label); the other hand is published on the
+`hand` carries the **gesture hand** (the one wearing the IMU). Default: one hand is tracked and published.
+In the optional two-hand mode (off by default), the frontend decides which visible hand is which (motion vs IMU, plus MediaPipe's label); the other hand is published on the
 frontend-internal topic `b"pointer_hand"` (same header/payload as `hand`, used only for cursor control; the
 backend can ignore it, and it deliberately does not start with `hand`, because ZeroMQ topics are prefix matches).
 

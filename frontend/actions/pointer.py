@@ -1,7 +1,7 @@
 """Pointer control (not the NN's job): moves the OS cursor from the IMU and the camera.
 
 Modes
-  * "left" (default): your OTHER hand (no IMU) steers. The camera tracks the centre of its palm; an OPEN hand
+  * "left" (needs two-hand tracking, `two_hands` in data/frontend_config.json; off for now): your OTHER hand (no IMU) steers. The camera tracks the centre of its palm; an OPEN hand
     moves the cursor, a FIST freezes it (close the fist, reposition, open again = lifting a mouse). No pointer
     hand in view = no movement. The acquisition service decides which visible hand is which and publishes the
     pointer hand on 5555 as `pointer_hand`.
@@ -38,7 +38,7 @@ def openness(lm) -> float:
     return float(np.mean(np.linalg.norm(lm[TIPS, :2] - lm[0, :2], axis=1)) / palm_len)
 
 DEFAULTS = {
-    "mode": "left", "speed": 12.0, "accel": True, "smoothing": 0.5, "invert_x": False, "invert_y": False,
+    "mode": "off", "speed": 12.0, "accel": True, "smoothing": 0.5, "invert_x": False, "invert_y": False,
     "need_hand": True, "freeze_on_clench": True,
     # gyro axis mapping: cursor x <- sign * gyro[axis_x], cursor y <- sign * gyro[axis_y]
     # default for the documented mount (+x fingertips, -y thumb, -z up), palm down: turn right = yaw, tilt down = pitch

@@ -11,6 +11,7 @@ DEFAULTS = {
     "cam_latency_calibrated": None,   # ISO time of the last sync calibration
     "camera_index": 0,
     "serial_port": None,
+    "two_hands": False,         # experimental left/right split (left hand = pointer); off = track one hand
 }
 
 

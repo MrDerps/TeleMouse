@@ -8,14 +8,15 @@ from PyQt6 import QtCore, QtWidgets
 from ..acquire import config
 from ..actions.pointer import DEFAULTS
 
-MODES = [("Left hand (camera): open hand = move, fist = freeze", "left"), ("Auto: IMU + camera", "auto"), ("IMU only", "imu"), ("Camera only", "camera"), ("Off", "off")]
+MODES = [("Off", "off"), ("Auto: IMU + camera", "auto"), ("IMU only", "imu"), ("Camera only", "camera"),
+         ("Left hand (needs two-hand tracking, experimental)", "left")]
 
 
 def load_settings():
     s = dict(DEFAULTS)
     saved = config.load().get("pointer") or {}
-    if saved.get("version", 1) < 2:          # v2 made the left-hand pointer the default
-        saved["mode"] = "left"
+    if saved.get("version", 1) < 3:          # v3: pointer off by default while the mouse is reworked
+        saved["mode"] = "off"
     s.update(saved)
     return s
 
@@ -75,7 +76,7 @@ class PointerPanel(QtWidgets.QGroupBox):
         self.changed()
 
     def settings(self):
-        return {"version": 2, "mode": self.mode.currentData(), "speed": float(self.speed.value()),
+        return {"version": 3, "mode": self.mode.currentData(), "speed": float(self.speed.value()),
                 "smoothing": self.smooth.value() / 100, "accel": self.accel.isChecked(),
                 "need_hand": self.need_hand.isChecked(), "freeze_on_clench": self.freeze.isChecked(),
                 "invert_x": self.inv_x.isChecked(), "invert_y": self.inv_y.isChecked(), **self._axes}
