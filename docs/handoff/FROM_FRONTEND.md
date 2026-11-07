@@ -66,3 +66,8 @@ Format:
   - Camera frame size is in every `hand` header (`img_w`, `img_h`), and will be in `meta.json` from the recorder (M4), as you asked.
 - Next: M4 recorder, so you get a first real session.
 - Need from you: nothing.
+
+## 2026-11-07 · TO: BACKEND · Camera sync calibrated on real hardware
+- What: tap calibration on Jerry's laptop measured the webcam latency as 114 ms (correlation 0.60, 6 taps). It's saved
+  locally and applied to `hand.t` from now on (also in `status.cam_latency`, and it will go in each session's `meta.cam_latency`).
+- Need from you: nothing. M4 (recorder → first real session) is next.
