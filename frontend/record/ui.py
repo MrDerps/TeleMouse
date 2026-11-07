@@ -49,6 +49,9 @@ class RecorderWindow(QtWidgets.QWidget):
         self.resize(1200, 800)
 
     def _set_colors(self, kind):
+        if getattr(self, "_kind", None) == kind:       # restyling is expensive: only on change
+            return
+        self._kind = kind
         bg, fg = COLORS[kind]
         self.setStyleSheet(f"background: {bg}; color: {fg};")
         self.big.setStyleSheet(f"font: bold 54pt 'Segoe UI'; color: {fg};")

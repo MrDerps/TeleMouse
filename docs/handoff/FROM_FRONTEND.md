@@ -100,3 +100,18 @@ Format:
   pads are single-use. Please make sure training copes with a session whose EMG is junk (ideally via `electrode_notes` or a
   flag; tell me which field you'd like and I'll set it).
 - Need from you: tell me what field you'd like for "EMG not valid in this session" (I propose `meta.emg_valid: false`).
+
+## 2026-11-07 · TO: BACKEND · First real session (dry run, no EMG pads) + hand timing heads-up
+- What: `data/sessions/20261107_132648_dryrun/`, 114 s, real IMU + camera, **no EMG pads**.
+  - `meta.emg_valid: false` is my proposed flag for "EMG not usable". The EMG is a floating 60 Hz rail-to-rail square wave
+    (ch1 61% / ch2 89% clipped). Please ignore or mask EMG for this session; tell me if you want a different field.
+  - Gesture `pinch` (instant), 10 reps + 10 s rest + 60 s free activity. Labels: 10 `pinch`, 2 `none`.
+  - Rates: EMG 1000 Hz, IMU 200 Hz, 0 dropped. Hand visible 100% during the trials and ~40% in the free block (typing out of view).
+  - The pinches are clearly visible in the landmarks: thumb–index distance falls to 0.01–0.10 × palm size in every cue window.
+  - Camera averaged 21.6 fps in this one. That was inference-limited on battery; it's fixed now (2 parallel landmarker
+    workers → 28–30 fps in the full system).
+- **Hand timing, please check your T−80 ms assumption:** with the calibrated latency (114 ms) plus inference (~35–40 ms on
+  battery), `hand` messages now arrive **~150 ms after their `t`** (measured median 152 ms). So for frame T the newest hand frame
+  you'll have live is about T−150 ms, not T−80 ms. Suggest making the hand look-back configurable, or deriving it from the measured
+  arrival lag. `status.cam_latency` has the calibrated value.
+- Need from you: (1) confirm `emg_valid`, (2) adjust the hand look-back if needed.

@@ -1,0 +1,60 @@
+{
+  "session_id": "20261107_132648_dryrun",
+  "created": "2026-11-07T13:26:48",
+  "fs_emg": 1000,
+  "fs_imu": 200,
+  "cam_latency": 0.114,
+  "imu_present": true,
+  "hand_present": true,
+  "img_w": 640,
+  "img_h": 480,
+  "electrode_notes": "DRY RUN: no EMG pads attached; EMG inputs floating (60 Hz rail-to-rail). Ignore EMG.",
+  "imu_notes": "back of the right hand, palm down: +x fingertips, -y thumb, -z up",
+  "gestures_snapshot": {
+    "version": 1,
+    "gestures": [
+      {
+        "id": "pinch",
+        "name": "Pinch",
+        "kind": "instant",
+        "action": {
+          "type": "none"
+        },
+        "created": "2026-11-07T13:24:40"
+      }
+    ]
+  },
+  "rest_periods": [
+    [
+      452812.9448106,
+      452822.9448106
+    ]
+  ],
+  "protocol_version": "1.0",
+  "source": "hardware",
+  "summary": {
+    "session_id": "20261107_132648_dryrun",
+    "seconds": 114.3,
+    "emg_samples": 114340,
+    "emg_rate": 1000.0,
+    "imu_samples": 22868,
+    "imu_valid": 22868,
+    "imu_rate": 200.0,
+    "hand_frames": 2466,
+    "hand_seen": 1738,
+    "cam_fps": 21.6,
+    "hand_seen_pct": 70.5,
+    "dropped": 0,
+    "emg_index_gaps": 0,
+    "labels": {
+      "none": 2,
+      "pinch": 10
+    },
+    "warnings": [
+      "camera 21.6 fps (expected ~30) or camera missing",
+      "EMG ch1 clipped 61% of the time: floating input / pads off?",
+      "EMG ch2 clipped 89% of the time: floating input / pads off?"
+    ]
+  },
+  "emg_valid": false
+}

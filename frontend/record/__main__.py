@@ -79,7 +79,7 @@ def run_gui(a):
         return 1
     tag = a.tag + ("" if result.get("completed") else "_partial")
     path, summary = write_session(buf, runner.labels, runner.rest_periods, tag, snapshot,
-                                  a.electrode_notes, a.imu_notes)
+                                  a.electrode_notes, a.imu_notes, extra_meta={"emg_valid": not a.emg_invalid})
     print_summary(path, summary)
     if not result.get("completed"):
         print("  (stopped early: complete windows were kept)")
@@ -156,6 +156,8 @@ def main(argv=None):
     ap.add_argument("--imu-notes", default="back of the right hand, palm down: +x fingertips, -y thumb, -z up")
     ap.add_argument("--allow-missing", nargs="*", choices=["emg", "imu", "hand"],
                     help="start even if these sensors aren't streaming (e.g. a dry run without EMG pads)")
+    ap.add_argument("--emg-invalid", action="store_true",
+                    help="mark meta.emg_valid=false (no pads / bad contact), so training ignores EMG")
     ap.add_argument("--port", type=int, default=P.PORT_SENSORS)
     ap.add_argument("--selftest", action="store_true")
     a = ap.parse_args(argv)
