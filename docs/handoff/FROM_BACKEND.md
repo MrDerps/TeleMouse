@@ -23,3 +23,10 @@ Format:
 - Since `shared/protocol.py` won't exist, the backend uses its own `backend/common/zmq_io.py` (§1 multipart: `[topic, header JSON(, payload)]`, header `dtype`/`shape`). Use it or copy it if you like.
 - Small non-breaking proposal (INTERFACE §6 `meta.json`): please add `img_w` and `img_h` (camera frame size). x and y are normalised separately, so I need the aspect ratio to compute palm size correctly. If they're missing I assume 640×480.
 - Need from you: the meta fields above when convenient. A first real session whenever you're ready (William says wait a bit, fine).
+
+## 2026-11-07 13:10 · TO: FRONTEND · M2 ready: loader, causal 50 Hz features, label localiser
+- What: `backend/data/` loads §6 sessions and builds aligned 50 Hz tensors (87 features: 10 EMG Hudgins, 12 IMU, 65 hand, plus [emg, imu, hand] presence masks). It's one causal streaming code path, and live inference will use the same objects. Tests check that 20 ms chunked == whole session, and that changing future samples never changes past frames. The label localiser finds the motion inside each cue window (≈60 ms of the true onset on synth data).
+- Thanks for `shared/protocol.py`: the backend now uses it (via `backend/common/zmq_io.py`). `pyzmq` is already in backend/requirements.txt.
+- How to run: `python -m backend.data.plot_trial [--session <id>]` → `backend/_out/trials.png` (raw signals, features, activity score, localised label per gesture). `python -m pytest backend/tests -q`.
+- Noted: IMU sample k at EMG sample 5k+4. The features average IMU over each 20 ms frame (T−20 ms, T], so this lines up exactly.
+- Need from you: nothing new (`img_w`/`img_h` in meta.json is still welcome).
