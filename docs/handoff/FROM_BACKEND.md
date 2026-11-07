@@ -85,3 +85,33 @@ Format:
   2. In the recorder cue, say **"do it once"**. The old tap sessions had 3–6 taps per cue in one session and 1 in the other.
   3. Confirm the `sensors` addition (or tell me what to change), then update INTERFACE.md, since you own the contract.
   4. When convenient: run `python -m backend.serve` on your laptop with real hardware for a few minutes and push the console log, so I can check real CPU and timing.
+
+## 2026-11-07 20:30 · TO: FRONTEND (and BOTH HUMANS) · App redesign brief: "Axion", dark, two modes
+- What: William designed a new look for the desktop app with me and asked me to send it to you. It's a **request for your side**: `frontend/` is yours, I haven't touched it. Product name is now **Axion** (logo below).
+- Mockup (interactive, press Play): https://claude.ai/artifact/74i9GUmdM1nghhMJSKDZzV. It's private: **William, please share it with Jerry** from the page's Share menu. The board to build is "Axion app, dark (chosen)". This note has the full spec, so you can work from it alone.
+- **Structure** (keep your existing functionality; this is layout and styling):
+  - **Top bar**, 52 px: logo (click opens Overview) · text tabs **Dashboard / Gestures / Train** with a 2 px blue underline on the active tab · a LIVE/PAUSED dot · an **Experience / Data** segmented control. The switch flips every page between a plain-language view and a technical view, so judges can see both.
+  - **Status bar**, bottom: small grey text with sensor rates, model name and probs rate.
+  - **Overview** (landing page): logo, one-liner "A mouse you wear. Define any hand gesture, give it an action, and control your computer without touching it.", short description, two buttons (Open dashboard / Set up gestures), a signal-path diagram (3 sensors → fused at 50 Hz → gesture model → actions), How it works (Define, Teach, Use), By the numbers (98 ms, 50 Hz, 3 sensors in any combination, ~45 s training, 117k params, 0 cloud), and Team.
+  - **Dashboard, Experience mode:**
+    - Last event: gesture name at 36 px, confidence / latency / time-ago readouts, Pause and Calibrate buttons.
+    - Sensors: three rows, each with a 4 px colour bar, a spec line and a switch. The EMG row carries the caption "Battery power only while electrodes are on." That's the CLAUDE.md safety requirement.
+    - Accuracy: recognised % and false triggers/min for the sensors currently on, read from `by_sensors` (see below).
+    - Gestures → actions: INSTANT/HOLD tags; the current gesture is highlighted.
+  - **Dashboard, Data mode:** a metrics strip (response time, frame age, model rate, camera delay), live signal traces, model-output bars per class, the accuracy-by-sensors table (current combination highlighted) and the event log.
+  - **Gestures:** cards (Experience) or a definitions table (Data). **Train:** Step 01/02/03 cards (Experience) or sessions plus training curve (Data).
+- **Tokens** (dark):
+  - Surfaces: page, top bar and status bar #09090B · panels #121214 with a 1 px #232327 border, radius 10 · inner dividers #1E1E22.
+  - Text: primary #EDEDEF · secondary #A1A1AA · labels #8B8B94 · disabled #5C5C66.
+  - **Accent blue #5B9BFF:** active tab, live/recognised state, switches, primary buttons (dark text #0B0B0C on them). Links #8AB8FF. Highlight tint #0E1A2E.
+  - **Sensor colours:** EMG sky #7CC4FA · IMU periwinkle #9B9CF5 · Camera sea-green #6FD6C3.
+  - **Type:** Apple-style sans everywhere, regular weight: SF Pro where available, else **Inter**. Bundle Inter as a font file; Segoe UI is the fallback. Tabular numbers. Page titles 22/600; panel labels 11 px uppercase, tracked 0.08em, numbered ("02 · SENSORS"); body 14.
+  - **Logo:** lowercase "axion" (600, tight tracking) next to an A drawn as two strokes, whose crossbar is a muscle-signal spike in blue. SVG paths for a 32-unit box: legs `M6 27 16 5l10 22` (stroke 3, round caps), spike `M9.5 19h3l1.5-3.5 2.5 6.5 1.5-3h4.5` (stroke 2.2, #8AB8FF on dark).
+- **Backend data that feeds it** (already live on 5557 since M6 part 1): `list_models` returns `sensors` and `by_sensors` {combination → precision, recall, fp_per_min, latency_ms}. `start` accepts `"sensors":[...]` and replies with `accuracy`. `status` adds `sensors`, `accuracy`, `lag_ms`, `hand_lag_ms`, `emg_warning`. The sensor switches can drive `start` with a sensors list. In the mockup the accuracy numbers are samples; use these fields instead.
+- **Packaging as an .exe** (William's plan):
+  - PyInstaller **one-folder** build of `frontend.app`, with the backend server launched as a child process. Avoid one-file mode: it unpacks on every start and is slow.
+  - Expect 0.6–1 GB, mostly PyTorch. Bundle MediaPipe's `.task` model file and Inter explicitly.
+  - Unsigned exes trigger SmartScreen, so tell the judges or run from the laptop.
+  - For the demo itself, a venv shortcut is the lower-risk fallback.
+  - If size matters, I can export the model so live inference runs without PyTorch. Training would still need it.
+- Need from you: your view on effort and timing. If anything in the design doesn't map well onto Qt, say so and William and I will simplify it.
