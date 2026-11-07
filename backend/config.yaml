@@ -60,6 +60,36 @@ baseline:
   none_subsample: 2              # keep every n-th 'none' training frame
   shrinkage: auto
 
+model:
+  branch_ch: 32
+  fuse_ch: 64
+  kernel: 3
+  dilations: [1, 2, 4, 8, 16]
+  branch_dilations: [1, 2]
+  dropout: 0.1
+
+train:
+  steps: 800                     # ~1.75 min on a laptop CPU (~130 ms/step incl. augmentation)
+  batch: 32
+  win_frames: 160                # 3.2 s training windows (100 labelled frames after warm-up)
+  warmup_frames: 60              # no loss on the first frames of a window (not enough history)
+  lr: 0.003
+  weight_decay: 0.001
+  class_weight_pow: 0.5          # weight = (1/freq)^pow, normalised
+  gesture_window_frac: 0.5       # fraction of windows centred on a gesture span
+  eval_every: 200
+  threads: 4
+  aug:
+    time_warp: 0.10
+    emg_scale: [0.7, 1.3]
+    noise: 0.05
+    rot_deg: 15
+    drop_emg: 0.10
+    drop_imu: 0.15
+    drop_hand: 0.30
+    hand_gap_p: 0.3              # chance of a random hand-lost segment inside a window
+  live_window_frames: 96         # live: re-run the model on the last ~1.9 s (> receptive field)
+
 events:
   ema_alpha: 0.5
   on_thr: 0.6

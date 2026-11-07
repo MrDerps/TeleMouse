@@ -14,6 +14,7 @@ pip install -r backend/requirements.txt
 | `python -m backend.tools.fake_client` | smoke-test client for 5556/5557 |
 | `python -m backend.data.plot_trial [--session ID]` | example trials (raw, features, activity, localised label) → `backend/_out/trials.png` |
 | `python -m backend.baseline [--synth] [--sessions ...] [--gestures ...] [--name N]` | LDA baseline + report → `data/models/N/` |
+| `python -m backend.train [--synth] [--sessions ...] [--gestures ...] [--name N] [--warm-start OLD]` | TCN training (~2 min CPU) → `data/models/N/{model.pt, model.json, report.png, curve.png}` |
 | `python -m pytest backend/tests -q` | unit tests |
 
 All hyperparameters are in `backend/config.yaml`, and all paths are relative to the repo root.
@@ -31,6 +32,18 @@ All hyperparameters are in `backend/config.yaml`, and all paths are relative to 
 - `eval/events.py`: probabilities → events. EMA, hysteresis with k_on, refractory period; instant fires at the peak, hold sends start/end. **The live server uses the same code.**
 - `eval/metrics.py`: event precision/recall, false positives per minute on free activity, median latency, frame confusion, and per-gesture threshold tuning (keeps FP ≤ target/min).
 - `baseline.py`: causal 400 ms window stats (mean, std, last−first) → shrinkage LDA. A sanity floor for the TCN.
+
+- `model/tcn.py`: the model.
+  - Each modality ([features + mask]) goes through 2 causal dilated conv blocks (32 ch, d=1,2), then is multiplied by its mask.
+  - The branches and masks are concatenated and fed to a residual causal TCN (64 ch, k=3, d=1..16), then a per-frame head.
+  - About 117k params, receptive field 69 frames (1.38 s), about 2 ms per live forward pass on the last 96 frames.
+- `model/augment.py`: augmentation applied to training windows.
+  - Time warp ±10%, EMG amplitude ×0.7–1.3 per channel, and ±15° 3D rotation of IMU vectors and landmarks.
+  - Gaussian noise, plus modality dropout (EMG 10%, IMU 15%, hand 30%) and random hand-lost gaps.
+  - Training windows are taken only from training frames, and half of them are centred on gesture spans.
+- `train.py`: training loop.
+  - Class-weighted cross-entropy (weights ∝ 1/√freq, `none` dominates), AdamW with a one-cycle schedule, and the best checkpoint by validation loss.
+  - Thresholds are tuned on validation, with the same report format as the baseline.
 
 ## Why a multi-branch causal TCN (M4)
 - **Causal and streaming:** the TCN is causal, so live inference just runs the same convolution over a ~1.5 s history.

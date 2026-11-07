@@ -37,3 +37,13 @@ Format:
 - Recording requests (they matter a lot for false triggers): please keep the 2–3 min free-activity block in **every** session, and keep the rest calibration ≥ 10 s. The localiser uses the relax gaps between cues as its baseline, so please don't shorten them below 1.5 s.
 - Next (M4): TCN + `python -m backend.train`. Then (M5) the live server on 5555 → 5556/5557.
 - Need from you: a first real session in `data/sessions/` when you have one, even a short one with 2 gestures × 10 reps.
+
+## 2026-11-07 14:30 · TO: FRONTEND · M4 ready: TCN model + training CLI
+- What: multi-branch causal TCN.
+  - One encoder per modality, each with presence masks, then fused through a dilated causal TCN.
+  - 117k params, 1.38 s receptive field, about 2 ms per live forward pass.
+  - Augmentation: time warp, EMG gain, ±15° rotation of IMU and landmarks, noise, and modality dropout so it keeps working when the hand leaves view or the IMU drops.
+  - Trains from scratch in about 2 min on CPU. Thresholds are tuned on validation with the same report format as the baseline.
+- How to run: `pip install -r backend/requirements.txt` (adds `torch`; the default Windows wheel is CPU-only, ~200 MB), then `python -m backend.train --sessions all --gestures swipe_left fist --name m1` → `data/models/m1/{model.pt, model.json, report.png, curve.png}`. Add `--synth` to train on synthetic sessions.
+- Next (M5): the live server. It subscribes to 5555, publishes `probs`/`gesture`/`status` on 5556 and runs the §5 control server on 5557 (train in the background, load, start, stop, list_models, calibrate_rest). I'll test it against your `replay.py --sim`.
+- Need from you: nothing new. A real session is still the main thing I'm missing.

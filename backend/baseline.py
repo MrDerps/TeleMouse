@@ -20,34 +20,13 @@ import numpy as np
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
 
 from backend.common.config import load_config, repo_path
-from backend.data.dataset import load_dataset, val_none_blocks, val_trials
-from backend.data.features import LAYOUT
+from backend.data.dataset import load_dataset
+from backend.data.normalize import Normalizer
 from backend.data.session import resolve_sessions
-from backend.eval.events import EventDetector, run_detector
-from backend.eval.metrics import event_metrics, frame_confusion, tune_thresholds
+from backend.eval.evaluate import evaluate_model, summary
 from backend.eval.report import save_report
 
 log = logging.getLogger("baseline")
-
-
-class Normalizer:
-    """Per-feature standardisation with training stats; masked modalities stay exactly zero."""
-
-    def fit(self, X, M):
-        self.mu = np.zeros(X.shape[1], np.float32)
-        self.sd = np.ones(X.shape[1], np.float32)
-        for k, (name, sl) in enumerate(LAYOUT.items()):
-            m = M[:, k]
-            if m.sum() > 10:
-                self.mu[sl] = X[m, sl].mean(0)
-                self.sd[sl] = np.maximum(X[m, sl].std(0), 1e-3)
-        return self
-
-    def __call__(self, X, M):
-        Z = (X - self.mu) / self.sd
-        for k, sl in enumerate(LAYOUT.values()):
-            Z[~M[:, k], sl] = 0.0
-        return np.clip(Z, -10, 10).astype(np.float32)
 
 
 def window_features(Z: np.ndarray, M: np.ndarray, W: int) -> np.ndarray:
@@ -100,45 +79,6 @@ class BaselineModel:
         return out
 
 
-def evaluate_model(predict, data, classes, kinds, cfg, thresholds=None):
-    """Run predict(X,M)->P per session; tune thresholds on val (if not given); event + frame metrics on val."""
-    slack = cfg["events"]["match_slack_s"]
-    Ts, Ps, ys, tr, nb, masks = [], [], [], [], [], []
-    for d in data:
-        P = predict(d.X, d.M)
-        Ts.append(d.T)
-        Ps.append(P)
-        ys.append(np.where(d.split == 1, d.y, -1))
-        tr += val_trials(d)
-        nb += val_none_blocks(d)
-        masks.append(d.split == 1)
-    # concatenate sessions on one timeline (sessions don't overlap in time: offset to be safe)
-    off, T_all = 0.0, []
-    tr_all, nb_all = [], []
-    for d, T in zip(data, Ts):
-        shift = off - T[0]
-        T_all.append(T + shift)
-        tr_all += [{**t, "cue": (t["cue"][0] + shift, t["cue"][1] + shift),
-                    "span": (t["span"][0] + shift, t["span"][1] + shift)} for t in val_trials(d)]
-        nb_all += [(a + shift, b + shift) for a, b in val_none_blocks(d)]
-        off = T_all[-1][-1] + 10.0
-    T = np.concatenate(T_all)
-    P = np.concatenate(Ps)
-    y = np.concatenate(ys)
-    vm = np.concatenate(masks)
-    if thresholds is None:
-        thresholds = tune_thresholds(T, P, tr_all, nb_all, classes, kinds, cfg)
-    det = EventDetector.from_config(classes, kinds, cfg, thresholds)
-    events = run_detector(T, P, det)
-    idx = np.clip(np.searchsorted(T, [e["t"] for e in events]), 0, len(T) - 1)
-    events = [e for e, k in zip(events, idx) if vm[k]]
-    m = event_metrics(events, tr_all, nb_all, classes, slack)
-    cm = frame_confusion(P, y, len(classes))
-    m["frame_acc"] = float(np.trace(cm) / max(cm.sum(), 1))
-    m["confusion"] = cm.tolist()
-    return m, thresholds, (T, P, y, events, cm, tr_all)
-
-
 def session_roots(cfg, synth: bool):
     return [repo_path(cfg["paths"]["synth"] if synth else cfg["paths"]["sessions"])]
 
@@ -167,18 +107,18 @@ def main(argv=None):
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "baseline.pkl", "wb") as f:
         pickle.dump({"norm": model.norm, "lda": model.lda, "W": model.W}, f)
-    summary = {k: metrics[k] for k in ("precision", "recall", "fp_per_min", "latency_ms", "frame_acc")}
+    summ = summary(metrics)
     meta = {"name": a.name, "type": "baseline_lda", "classes": classes, "kinds": kinds,
             "created": datetime.now().isoformat(timespec="seconds"), "sessions": [p.name for p in paths],
             "thresholds": thr, "events": {k: cfg["events"][k] for k in ("ema_alpha", "k_on", "refractory_s")},
-            "rest_std": {d.id: d.rest_std.tolist() for d in data}, "val_metrics": summary,
+            "rest_std": {d.id: d.rest_std.tolist() for d in data}, "val_metrics": summ,
             "val_detail": metrics}
     (out / "model.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
     t_from = tr[0]["cue"][0] - 5 if tr else None
     save_report(out / "report.png", f"baseline LDA  {a.name}  ({len(paths)} session(s))", classes, cm, metrics,
                 T, P, y, events, thr, t_from=t_from)
     log.info("done in %.1fs -> %s", time.perf_counter() - t0, out)
-    print(json.dumps(summary, indent=2))
+    print(json.dumps(summ, indent=2))
     for g, m in metrics["per_gesture"].items():
         print(f"  {g:14s} P {m['precision']:.2f} R {m['recall']:.2f} n {m['n']} "
               f"FPnone/min {m['fp_none_per_min']:.2f} lat {m['latency_ms']:.0f} ms  thr {thr[g]['on_thr']}")
