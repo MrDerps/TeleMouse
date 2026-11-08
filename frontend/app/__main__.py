@@ -48,6 +48,9 @@ class AxionApp(QtWidgets.QMainWindow):
         self.retrain_ctx = {}                  # what triggered the training in flight ({"added": gid}, ...)
         self._queued_ctx = {}
         self._prev_model = None                # the model that was in use when this training started
+        self.model_stale = False               # gestures changed but the user postponed retraining
+        self._batch_due = None                 # wall-clock time a batched retrain will start
+        self._batch_ctx, self._batch_reasons = {}, []
         self.rates = {"emg": 0.0, "imu": 0.0, "hand": 0.0}
         self.probs_rate = 0.0
         self._rate_t, self._rate_c, self._probs_n, self._probs_last = time.perf_counter(), None, 0, None
@@ -83,6 +86,7 @@ class AxionApp(QtWidgets.QMainWindow):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         v.addWidget(self._topbar())
+        v.addWidget(self._retrain_bar())
         self.stack = QtWidgets.QStackedWidget()
         self.pages = {"overview": OverviewPage(self), "dashboard": DashboardPage(self),
                       "gestures": GesturesPage(self), "train": TrainPage(self)}
@@ -137,6 +141,21 @@ class AxionApp(QtWidgets.QMainWindow):
         gear = button("⚙", None, lambda: self.open_settings(), "Settings")
         gear.setFixedWidth(40)
         h.addWidget(gear)
+        return bar
+
+    def _retrain_bar(self):
+        bar = QtWidgets.QFrame()
+        bar.setObjectName("RetrainBar")
+        bar.setStyleSheet(f"QFrame#RetrainBar {{ background: {C['tint']}; border-bottom: 1px solid {C['divider']}; }}"
+                          "QFrame#RetrainBar QLabel { background: transparent; }")
+        h = QtWidgets.QHBoxLayout(bar)
+        h.setContentsMargins(20, 8, 16, 8)
+        self.batch_lbl = label("", 13, 500)
+        h.addWidget(self.batch_lbl, 1)
+        h.addWidget(button("Retrain now", "Primary", lambda: self._flush_batch(now=True)))
+        h.addWidget(button("Not now", None, self._postpone_batch))
+        bar.hide()
+        self.batch_bar = bar
         return bar
 
     def _statusbar(self):
@@ -239,7 +258,38 @@ class AxionApp(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(self, "Use model", f"Couldn't load {name}: {r.get('error')}")
         self.backend.control({"cmd": "load", "name": name}, loaded, timeout_s=10.0)
 
-    def retrain(self, reason="", ctx=None):
+    BATCH_S = 20
+    BATCHED = ("enabled", "disabled", "removed", "kind")
+
+    def retrain(self, reason="", ctx=None, delay=None):
+        """Edits (switch on/off, delete, instant/hold) wait BATCH_S seconds so several quick edits become ONE training;
+        a new recording or the Retrain button trains right away (taking any waiting edits with it)."""
+        ctx = dict(ctx or {})
+        if delay is None:
+            delay = self.BATCH_S if ctx and all(k in self.BATCHED for k in ctx) else 0
+        self._batch_ctx.update(ctx)
+        if reason:
+            self._batch_reasons.append(reason)
+        if delay > 0:
+            self._batch_due = time.perf_counter() + delay
+            self.batch_bar.show()
+            return
+        self._flush_batch(now=True)
+
+    def _flush_batch(self, now=False):
+        ctx, reasons = self._batch_ctx, self._batch_reasons
+        self._batch_ctx, self._batch_reasons, self._batch_due = {}, [], None
+        self.batch_bar.hide()
+        self.model_stale = False
+        self._retrain_now(", ".join(dict.fromkeys(reasons)) or "manual", ctx)
+
+    def _postpone_batch(self):
+        self._batch_due = None
+        self.batch_bar.hide()
+        self.model_stale = True              # the Train page offers "Retrain" until it's done
+        self.log("retraining postponed: press 'Retrain on everything' on the Train page when you're ready")
+
+    def _retrain_now(self, reason="", ctx=None):
         """Retrain on every recording of every defined gesture. Only one training runs at a time: a request that
         arrives during training is merged into ONE follow-up run. With no gestures left, the model is removed."""
         from .teach import trainable, train_everything
@@ -270,7 +320,7 @@ class AxionApp(QtWidgets.QMainWindow):
                     self.log(f"train failed: {r.get('error')}")
         self.retrain_ctx = dict(ctx or {})
         self._prev_model = (self.backend.status or {}).get("model")
-        ok, info = train_everything(self, on_reply=replied)
+        ok, info = train_everything(self, on_reply=replied, warm_start=self._prev_model)
         self.log(info + (f"  ({reason})" if reason else ""))
         if not ok and reason == "manual":
             QtWidgets.QMessageBox.information(self, "Retrain", info)
@@ -316,7 +366,7 @@ class AxionApp(QtWidgets.QMainWindow):
             if self.retrain_again:
                 self.retrain_again = False
                 ctx, self._queued_ctx = self._queued_ctx, {}
-                self.retrain(reason="changes made during training", ctx=ctx)
+                self.retrain(reason="changes made during training", ctx=ctx, delay=0)
         self.backend.control({"cmd": "load", "name": prev}, loaded, timeout_s=10.0)
 
     def _accept_model(self, name):
@@ -336,7 +386,7 @@ class AxionApp(QtWidgets.QMainWindow):
             if self.retrain_again:
                 self.retrain_again = False
                 ctx, self._queued_ctx = self._queued_ctx, {}
-                self.retrain(reason="changes made during training", ctx=ctx)
+                self.retrain(reason="changes made during training", ctx=ctx, delay=0)
             else:
                 QtWidgets.QMessageBox.information(
                     self, "Model updated", "Your gestures are trained and being recognised now.\n\n"
@@ -449,6 +499,13 @@ class AxionApp(QtWidgets.QMainWindow):
     # ------------------------------------------------------------------ UI timer (no I/O here)
     def tick(self):
         now = time.perf_counter()
+        if self._batch_due is not None:
+            left = self._batch_due - now
+            if left <= 0:
+                self._flush_batch()
+            else:
+                self.batch_lbl.setText(f"Retraining in {left:.0f} s  ·  " + ", ".join(dict.fromkeys(self._batch_reasons))
+                                       + "  ·  more edits now are included in the same training")
         snap = self.sensors.snapshot()
         if self._rate_c is None or now - self._rate_t >= 1.0:
             if self._rate_c is not None:
@@ -483,7 +540,7 @@ class AxionApp(QtWidgets.QMainWindow):
                 if self.retrain_again:
                     self.retrain_again = False
                     ctx, self._queued_ctx = self._queued_ctx, {}
-                    self.retrain(reason="queued", ctx=ctx)
+                    self.retrain(reason="queued", ctx=ctx, delay=0)
             elif done:
                 name, self.pending_model = self.pending_model, None
                 self._training_finished(name)

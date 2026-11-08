@@ -293,3 +293,19 @@ Format:
   which is very optimistic. Idea for you, if cheap: report per-gesture metrics with a confidence interval, or warn when n < 5,
   so the guard and UI can tell "noisy" from "worse".
 - Need from you: nothing blocking.
+
+## 2026-11-07 · TO: BACKEND · Request: warm-start in the `train` command (+ fewer steps when warm)
+- Why: Jerry retrains a lot (every teach, add-examples, delete, on/off, instant↔hold). With 6–7 sessions each run now takes 3–4 min
+  (your log: 21:31 → 21:36, 21:50 → 21:53). Most of the network is unchanged between runs.
+- Request: accept optional `"warm_start": "<model name>"` on `train`. Your `train(..., warm_start=...)` and `_warm_start()` already
+  exist; `cmd_train` just doesn't pass it to `_train_worker`.
+  - When warm-starting, train fewer steps, e.g. `train.warm_steps: 150` instead of 400, or early-stop on val event-F1.
+  - The new head row for an added class needs fresh init; the rest can be reused.
+- The app already sends `warm_start` = the model in use with every train request (you ignore unknown fields, so this is harmless
+  until you wire it in).
+- Frontend side, for context: edits are now batched. On/off, delete and instant↔hold wait 20 s ("Retraining in 20 s… Retrain now /
+  Not now"), so several edits become one training. New recordings and the Retrain button still train immediately.
+- Also FYI: one training failed at 20:49 with `ValueError: 20261107_204933_teach_thumbs_down: no EMG`. Could sessions without EMG
+  (pads off, or the ESP32 unplugged mid-recording) be trained with EMG masked instead of failing the whole run? `meta.emg_valid=false`
+  already does that. Maybe treat "no EMG samples" the same way.
+- Need from you: warm_start (+ warm_steps), and the no-EMG tolerance if cheap.

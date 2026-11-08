@@ -38,15 +38,18 @@ def trainable(sessions=None):
     return ids, [g for g in defined if g in have]
 
 
-def train_everything(app, name=None, on_reply=None):
+def train_everything(app, name=None, on_reply=None, warm_start=None):
     sessions, gestures = trainable()
     if not gestures:
         return False, "No recordings yet for the defined gestures."
     sensors = sensor_picker.current()
     name = name or dt.datetime.now().strftime("auto_%m%d_%H%M%S")
     app.pending_model = name
-    app.backend.control({"cmd": "train", "gestures": gestures, "sessions": sessions, "name": name,
-                         "sensors": sensors, "sensor_weights": sensor_picker.weights(sensors)}, on_reply, timeout_s=5.0)
+    req = {"cmd": "train", "gestures": gestures, "sessions": sessions, "name": name,
+           "sensors": sensors, "sensor_weights": sensor_picker.weights(sensors)}
+    if warm_start:
+        req["warm_start"] = warm_start        # start from the model in use (faster); ignored by engines without it
+    app.backend.control(req, on_reply, timeout_s=5.0)
     return True, (f"training '{name}' on {len(sessions)} session(s), gestures {', '.join(gestures)}, "
                   f"sensors {sensor_picker.key(sensors)}" + (f" (EMG weight {sensor_picker.emg_weight():.0%})" if "emg" in sensors else ""))
 

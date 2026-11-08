@@ -255,6 +255,10 @@ class TrainPage(QtWidgets.QWidget):
             self.s2_txt.setText("Training failed")
             self.s2_sub.setText(st.get("message") or "")
             self.progress.setValue(0)
+        elif self.app.model_stale:
+            self.s2_txt.setText("Changes not trained yet")
+            self.s2_sub.setText("You postponed retraining. Press Retrain when you're ready.")
+            self.progress.setValue(0)
         else:
             self.s2_txt.setText(f"Model: {data.model_label(st.get('model'))}" if st.get("model") else "No model yet")
             self.s2_sub.setText("Retrains automatically whenever you add, re-teach or remove a gesture.")
