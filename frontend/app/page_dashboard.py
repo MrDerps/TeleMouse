@@ -119,29 +119,17 @@ class DashboardPage(QtWidgets.QWidget):
                      "without the camera.", 12, 400, C["label"], wrap=True))
         g.addWidget(p2, 0, 2, 1, 1)
 
-        # 03 accuracy
-        p3 = Panel("Accuracy", 3)
-        self.acc_big = label("–", 40, 600)
-        p3.add(self.acc_big)
-        p3.add(label("of gestures recognised", 13, 400, C["text2"]))
-        self.acc_fp = label("", 14, 500)
-        p3.add(self.acc_fp)
-        self.acc_with = label("", 12, 400, C["label"], wrap=True)
-        p3.add(self.acc_with)
-        p3.lay.addStretch(1)
-        g.addWidget(p3, 1, 0)
-
-        # 04 gestures -> actions
-        p4 = Panel("Gestures → actions", 4, right=button("Edit", "Ghost", lambda: self.app.go("gestures")))
+        # 03 gestures -> actions
+        p4 = Panel("Gestures → actions", 3, right=button("Edit", "Ghost", lambda: self.app.go("gestures")))
         self.glist = QtWidgets.QVBoxLayout()
         self.glist.setSpacing(4)
         p4.add(self.glist)
         p4.lay.addStretch(1)
-        g.addWidget(p4, 1, 1)
+        g.addWidget(p4, 1, 0, 1, 2)
         self._grows = {}
 
-        # 05 pointer
-        p5 = Panel("Mouse pointer", 5, right=button("More", "Ghost", lambda: self.app.open_settings("Pointer")))
+        # 04 pointer
+        p5 = Panel("Mouse pointer", 4, right=button("More", "Ghost", lambda: self.app.open_settings("Pointer")))
         self.pmode = QtWidgets.QComboBox()
         for t, k in POINTER_MODES:
             self.pmode.addItem(t, k)
@@ -340,20 +328,6 @@ class DashboardPage(QtWidgets.QWidget):
             else:
                 stl.setText("offline")
                 stl.setStyleSheet(f"color: {C['label']};")
-        # accuracy
-        m = self.app.model_info.get(st.get("model")) if st.get("model") else None
-        sens = sensor_picker.current()
-        if m:
-            bs = (m.get("by_sensors") or {}).get(sensor_picker.key(sens)) or m.get("val_metrics") or {}
-            self.acc_big.setText(pct(bs.get("recall")))
-            fp = bs.get("fp_per_min")
-            self.acc_fp.setText(f"{fp:.1f} false triggers per minute" if isinstance(fp, (int, float)) and fp == fp else "")
-            self.acc_with.setText("with " + " + ".join(sensor_picker.LABEL[s] for s in sens) +
-                                  " · measured on held-out reps of your recordings")
-        else:
-            self.acc_big.setText("–")
-            self.acc_fp.setText("")
-            self.acc_with.setText("Teach a gesture to see how well it's recognised.")
         # last event + highlight
         ev = self._last_event
         if ev:
