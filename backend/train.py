@@ -91,7 +91,7 @@ def val_loss(model, norm, data, w):
 
 
 def train(paths, gestures, name, cfg, warm_start=None, progress=None, sensors=None, sensor_weights=None,
-          val_sessions=None):
+          val_sessions=None, negatives=None):
     """Returns (out_dir, meta). progress(frac, message) is called during training (for the live server).
     sensors: subset of ("emg", "imu", "hand") to train with (default all); the others are masked out.
     sensor_weights: {"emg": 0.2, ...} influence 0..1 (default config train.sensor_weights); weight 0 = left out.
@@ -112,7 +112,7 @@ def train(paths, gestures, name, cfg, warm_start=None, progress=None, sensors=No
     torch.manual_seed(seed)
     torch.set_num_threads(cfg["train"]["threads"])
     progress(0.0, "building features")
-    data, classes, kinds = load_dataset(paths, gestures, cfg, sensors, val_sessions=val_sessions)
+    data, classes, kinds = load_dataset(paths, gestures, cfg, sensors, val_sessions=val_sessions, negatives=negatives)
     log.info("classes %s, %d session(s), features in %.1fs", classes, len(data), time.perf_counter() - t0)
     Xtr = np.concatenate([d.X[d.split == 0] for d in data])
     Mtr = np.concatenate([d.M[d.split == 0] for d in data])

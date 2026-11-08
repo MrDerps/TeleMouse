@@ -1,4 +1,4 @@
-# Interface contract: frontend ↔ backend   (version 0.5: single IMU, sensor subsets, sensor weights, val sessions, warm start, delete_model)
+# Interface contract: frontend ↔ backend   (version 0.6: single IMU, sensor subsets, sensor weights, val sessions, warm start, delete_model, negatives)
 
 The frontend and backend run as **separate processes** and talk over **ZeroMQ on localhost**,
 plus shared **files in `data/`**. The serial packet format is internal to the frontend, so the backend never sees it.
@@ -62,7 +62,7 @@ The latency target is under 150 ms from end of motion to the `gesture` event (id
 | Request | Reply |
 |---|---|
 | `{"cmd":"status"}` | `{"ok":true, "state":..., "model":..., "classes":[...]}` |
-| `{"cmd":"train", "gestures":["swipe_left",...], "sessions":"all" or ["<session_id>",...], "name":"model_name", "sensors":["emg","imu","hand"] (v0.3, optional, default all), "sensor_weights":{"emg":0.2,"imu":1.0,"hand":1.0} (v0.4, optional, 0..1 per sensor; default EMG 0.2, others 1.0), "val_sessions":["<session_id>",...] (v0.4, optional: hold out whole sessions; default = last 20% of each gesture's reps in every session), "warm_start":"<model name>" (v0.5, optional: start from that model's weights and train train.warm_steps instead of train.steps)}` | `{"ok":true}` immediately. Training runs in the background, and progress is published on 5556 `status` |
+| `{"cmd":"train", "gestures":["swipe_left",...], "sessions":"all" or ["<session_id>",...], "name":"model_name", "sensors":["emg","imu","hand"] (v0.3, optional, default all), "sensor_weights":{"emg":0.2,"imu":1.0,"hand":1.0} (v0.4, optional, 0..1 per sensor; default EMG 0.2, others 1.0), "val_sessions":["<session_id>",...] (v0.4, optional: hold out whole sessions; default = last 20% of each gesture's reps in every session), "warm_start":"<model name>" (v0.5, optional: start from that model's weights and train train.warm_steps instead of train.steps), "negatives":["<gesture id>",...] (v0.6, optional: cue windows of these gestures are labelled `none`, i.e. motions to ignore)}` | `{"ok":true}` immediately. Training runs in the background, and progress is published on 5556 `status` |
 | `{"cmd":"load", "name":"model_name"}` | `{"ok":true, "classes":[...]}` |
 | `{"cmd":"start"}` / `{"cmd":"stop"}` | `{"ok":true}`: start or stop live inference on the 5555 stream |
 | `{"cmd":"start", "sensors":["emg","imu"]}` (v0.3, optional field) | `{"ok":true, "sensors":[...], "accuracy":{"precision","recall","fp_per_min","latency_ms"}}`: run the loaded model with only these sensors |

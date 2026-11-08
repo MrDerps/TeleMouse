@@ -13,6 +13,8 @@ the hold ends where that burst starts. (labels.hold_to_cue_end=false restores fi
 Frames in the span get the gesture label, frames just outside it (edge_ignore_s) are ignored (-1), everything
 else is `none` (0). Cue windows of gestures not in the class list are ignored entirely (not called `none`).
 If nothing is active, fall back to the window centre (logged).
+Cue windows of NEGATIVE gestures (switched off by the user) are labelled `none` as a whole, so the model learns
+that those near-miss motions are not gestures.
 Unlabelled relax gaps are `none` only where they are quiet: clearly active gap frames (e.g. the user still
 repeating the previous gesture after its cue ended) are ignored, so real gestures are never taught as `none`.
 Explicitly labelled `none` windows (rest, free activity) stay `none` whatever happens in them.
@@ -92,7 +94,7 @@ def _spans(active: np.ndarray, merge: int) -> list[tuple[int, int]]:
 
 
 def localise(T, X, M, labels: list[dict], classes: list[str], kinds: dict[str, str], cfg: dict,
-             rest_periods=None):
+             rest_periods=None, negatives=()):
     """Returns y (F,) int (-1 ignore, 0 none, 1.. gestures) and a list of trial dicts."""
     lc = cfg["labels"]
     hop = cfg["frame"]["hop_s"]
@@ -140,6 +142,9 @@ def localise(T, X, M, labels: list[dict], classes: list[str], kinds: dict[str, s
             a0 = max(a0, rows[j - 1]["t_end"])
         w = np.flatnonzero((T >= a0) & (T < r["t_end"]))
         if len(w) == 0:
+            continue
+        if lab in negatives:                      # a switched-off gesture: "this motion is not a gesture"
+            y[w] = 0
             continue
         if lab not in cls_idx:
             y[w] = IGNORE

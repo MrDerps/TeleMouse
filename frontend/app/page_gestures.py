@@ -170,8 +170,11 @@ class GesturesPage(QtWidgets.QWidget):
         top.addWidget(sw)
         lay.addLayout(top)
         if not on:
-            lay.addWidget(label("Off: not in the model. Recordings are kept; switch on to use it again.",
-                                12, 400, C["label"], wrap=True))
+            from ..acquire import config as _cfg
+            txt = ("Off: the model learns to IGNORE this motion. Recordings are kept; switch on to use it again."
+                   if _cfg.load().get("off_as_negatives", True) else
+                   "Off: not in the model. Recordings are kept; switch on to use it again.")
+            lay.addWidget(label(txt, 12, 400, C["label"], wrap=True))
         ar = QtWidgets.QHBoxLayout()
         ar.addWidget(label(describe(g.get("action")), 14, 400, C["text"]))
         ar.addStretch(1)

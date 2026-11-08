@@ -46,15 +46,17 @@ def gesture_catalog(cfg, sessions: list[Session]) -> dict[str, dict]:
 
 
 def build_session(sess: Session, classes: list[str], kinds: dict[str, str], cfg: dict,
-                  sensors=MODALITIES) -> SessionData:
+                  sensors=MODALITIES, negatives=()) -> SessionData:
     T, X, M, rest_std = featurize_session(sess, cfg, sensors=sensors)
-    y, trials, score = localise(T, X, M, sess.labels, classes, kinds, cfg, sess.rest_periods)
+    y, trials, score = localise(T, X, M, sess.labels, classes, kinds, cfg, sess.rest_periods, negatives)
     blocks = [(r["t_start"], r["t_end"]) for r in sess.labels
               if r["label"] == "none" and r["t_end"] - r["t_start"] >= cfg["events"]["min_none_block_s"]]
     return SessionData(sess.id, T, X, M, y, trials, blocks, rest_std, score)
 
 
-def load_dataset(paths, gestures: list[str] | None, cfg: dict, sensors=MODALITIES, val_sessions=None):
+def load_dataset(paths, gestures: list[str] | None, cfg: dict, sensors=MODALITIES, val_sessions=None,
+                 negatives=None):
+    """negatives: gesture ids whose cue windows are labelled `none` (motions the model must ignore)."""
     """val_sessions: optional session ids held out whole as validation (default: per-gesture stratified split)."""
     sessions = [load_session(p) for p in paths]
     empty = [s.id for s in sessions if len(s.emg) == 0]
@@ -72,7 +74,10 @@ def load_dataset(paths, gestures: list[str] | None, cfg: dict, sensors=MODALITIE
         raise ValueError(f"no recorded trials for gestures: {missing}")
     classes = ["none"] + list(gestures)
     kinds = {g: cat.get(g, {}).get("kind", "instant") for g in gestures}
-    data = [build_session(s, classes, kinds, cfg, sensors) for s in sessions]
+    neg = tuple(g for g in (negatives or ()) if g not in gestures)
+    if neg:
+        log.info("negatives (labelled none): %s", list(neg))
+    data = [build_session(s, classes, kinds, cfg, sensors, neg) for s in sessions]
     assign_split(data, cfg, val_sessions=val_sessions)
     return data, classes, kinds
 

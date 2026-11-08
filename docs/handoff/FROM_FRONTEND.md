@@ -332,3 +332,11 @@ Format:
 - Sessions with no EMG samples are skipped with a warning (they used to fail the whole training).
 - `list_models` includes `by_sensors[*].per_gesture`. New `delete_model` command (refuses the loaded model).
 - Tests: all 34 pass. INTERFACE.md bumped to v0.5.
+
+## 2026-11-08 · TO: BOTH HUMANS · Switched-off gestures teach "ignore this"; adaptive free activity (INTERFACE v0.6)
+- Engine: `train` accepts `"negatives": [gesture ids]`. Their cue windows are labelled `none` (they used to be ignored), so
+  near-miss motions stop triggering the active gestures. On a synthetic check: 600/600 frames go from ignored to none.
+- App: switched-off gestures with recordings are sent as `negatives` (Settings → Model, on by default), and their cards say so.
+- Teach: the normal-activity block is 45 s until ~2 min of free activity is saved across recordings, then 10 s. Add examples on
+  a gesture that "fires during normal activity" always gets 45 s.
+- Tests: backend 34/34 pass. The engine was restarted on the new code with the running model.

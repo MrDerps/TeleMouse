@@ -206,6 +206,18 @@ class SettingsDialog(QtWidgets.QDialog):
         p2.add(row)
         p2.add(label("Raise it if you get accidental clicks, lower it if gestures are missed.", 12, 400, C["label"]))
         v.addWidget(p2)
+        p3 = Panel("Switched-off gestures")
+        r = QtWidgets.QHBoxLayout()
+        r.addWidget(label("Use them to teach the model what to ignore", 14, 500))
+        r.addStretch(1)
+        from .ui import Switch
+        neg = Switch(bool(config.load().get("off_as_negatives", True)))
+        neg.toggled.connect(lambda on: config.save(off_as_negatives=bool(on)))
+        r.addWidget(neg)
+        p3.add(r)
+        p3.add(label("A switched-off gesture's recordings are labelled 'not a gesture', so similar motions stop "
+                     "triggering the others. Applies at the next training.", 12, 400, C["label"], wrap=True))
+        v.addWidget(p3)
         v.addStretch(1)
         return w
 

@@ -126,3 +126,24 @@ def set_model_label(name, alias):
     else:
         names.pop(name, None)
     cfg.save(model_names=names)
+
+
+def free_activity_seconds(sessions=None) -> float:
+    """Total seconds of free activity ('none' windows that aren't the rest calibration) across recordings."""
+    import csv
+    total = 0.0
+    for s in sessions if sessions is not None else list_sessions():
+        try:
+            meta = json.loads((s["path"] / "meta.json").read_text(encoding="utf-8"))
+            rest = meta.get("rest_periods") or []
+            with open(s["path"] / "labels.csv") as f:
+                for r in csv.DictReader(f):
+                    if r["label"] != "none":
+                        continue
+                    a, b = float(r["t_start"]), float(r["t_end"])
+                    if any(abs(a - ra) < 0.5 and abs(b - rb) < 0.5 for ra, rb in rest):
+                        continue
+                    total += b - a
+        except (OSError, ValueError, KeyError):
+            continue
+    return total

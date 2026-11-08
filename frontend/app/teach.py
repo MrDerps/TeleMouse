@@ -38,15 +38,33 @@ def trainable(sessions=None):
     return ids, [g for g in defined if g in have]
 
 
+def negatives():
+    """-> (session ids, gesture ids) of switched-OFF gestures with recordings, used as "ignore this" examples."""
+    from ..acquire import config
+    if not config.load().get("off_as_negatives", True):
+        return [], []
+    off = [g["id"] for g in G.load()["gestures"] if not g.get("enabled", True)]
+    ids, have = [], set()
+    for s in list_sessions():
+        hit = [g for g in s["labels"] if g in off]
+        if hit:
+            ids.append(s["id"])
+            have.update(hit)
+    return ids, [g for g in off if g in have]
+
+
 def train_everything(app, name=None, on_reply=None, warm_start=None):
     sessions, gestures = trainable()
+    neg_sessions, neg = negatives()
     if not gestures:
         return False, "No recordings yet for the defined gestures."
     sensors = sensor_picker.current()
     name = name or dt.datetime.now().strftime("auto_%m%d_%H%M%S")
     app.pending_model = name
-    req = {"cmd": "train", "gestures": gestures, "sessions": sessions, "name": name,
-           "sensors": sensors, "sensor_weights": sensor_picker.weights(sensors)}
+    req = {"cmd": "train", "gestures": gestures, "sessions": sessions + [s for s in neg_sessions if s not in sessions],
+           "name": name, "sensors": sensors, "sensor_weights": sensor_picker.weights(sensors)}
+    if neg:
+        req["negatives"] = neg               # switched-off gestures: learn to IGNORE these motions
     if warm_start:
         req["warm_start"] = warm_start        # start from the model in use (faster); ignored by engines without it
     app.backend.control(req, on_reply, timeout_s=5.0)
@@ -54,7 +72,28 @@ def train_everything(app, name=None, on_reply=None, warm_start=None):
                   f"sensors {sensor_picker.key(sensors)}" + (f" (EMG weight {sensor_picker.emg_weight():.0%})" if "emg" in sensors else ""))
 
 
-REPS, FREE_S = 15, 45.0
+REPS = 15
+FREE_LONG_S, FREE_SHORT_S, FREE_TARGET_S = 45.0, 10.0, 120.0   # free activity: long until ~2 min are saved
+
+
+def free_seconds_for(existing=None):
+    """Adaptive free-activity length: 45 s until ~2 min of free activity exist across all recordings, then 10 s.
+    Re-teaching a gesture that fires during normal activity always gets the long block."""
+    from . import data
+    have = data.free_activity_seconds()
+    if existing:
+        from .guard import gesture_warnings, load_model
+        st_model = None
+        try:
+            st_model = sorted(data.list_models(), key=lambda m: str(m.get("created")))[-1]["name"]
+        except IndexError:
+            pass
+        warn = gesture_warnings(load_model(st_model)).get(existing["id"], [])
+        if any("normal activity" in w for w in warn):
+            return FREE_LONG_S, have, "this gesture fires during normal activity"
+    if have < FREE_TARGET_S:
+        return FREE_LONG_S, have, None
+    return FREE_SHORT_S, have, None
 
 
 def make_id(name: str, taken) -> str:
@@ -79,6 +118,7 @@ class TeachDialog(QtWidgets.QDialog):
         self.existing = existing
         self.others = others or []
         self.refresh = 0                         # refresher reps of other gestures (off: Jerry prefers one gesture)
+        self.free_s, have, why = free_seconds_for(existing)
         self.setWindowTitle("Add examples" if existing else "Teach a new gesture")
         self.setMinimumWidth(460)
         lay = QtWidgets.QVBoxLayout(self)
@@ -107,7 +147,13 @@ class TeachDialog(QtWidgets.QDialog):
         info.setObjectName("Panel")
         il = QtWidgets.QVBoxLayout(info)
         il.setContentsMargins(14, 10, 14, 10)
-        il.addWidget(label(f"{REPS} repetitions  ·  {FREE_S:.0f} s of normal activity  ·  about 2 minutes", 13, 500))
+        mins = (8 + REPS * 4.0 + self.free_s + 3) / 60
+        il.addWidget(label(f"{REPS} repetitions  ·  {self.free_s:.0f} s of normal activity  ·  about {mins:.1f} min", 13, 500))
+        il.addWidget(label((f"Longer normal-activity block because {why}." if why else
+                            f"You have {have / 60:.1f} min of normal activity saved"
+                            + (" , so this one is short." if self.free_s < FREE_LONG_S else
+                               f"; collecting more until {FREE_TARGET_S / 60:.0f} min.")),
+                           12, 400, C["label"], wrap=True))
         il.addWidget(label("Do it once each time the cue appears. During the normal-activity part, move naturally but "
                            "don't do the gesture.", 12, 400, C["text2"], wrap=True))
         lay.addWidget(info)
@@ -130,7 +176,7 @@ class TeachDialog(QtWidgets.QDialog):
 
     def plan(self, g):
         blocks = [(g, REPS)] + [(o, self.refresh) for o in self.others if o["id"] != g["id"]]
-        return build_blocks(blocks, rest_s=8.0, free_s=FREE_S)
+        return build_blocks(blocks, rest_s=8.0, free_s=self.free_s)
 
     def _ok(self):
         if self.existing:

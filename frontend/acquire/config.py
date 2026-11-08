@@ -13,7 +13,8 @@ DEFAULTS = {
     "serial_port": None,
     "two_hands": False,
     "emg_swap": False,          # swap ch1 <-> ch2 before publishing (leads plugged in the other way round)
-    "emg_swap_auto": True,      # let the app detect a swap from the first confident gestures         # experimental left/right split (left hand = pointer); off = track one hand
+    "emg_swap_auto": True,
+    "off_as_negatives": True,   # switched-off gestures teach the model what to ignore      # let the app detect a swap from the first confident gestures         # experimental left/right split (left hand = pointer); off = track one hand
 }
 
 
