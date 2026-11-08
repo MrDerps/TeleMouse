@@ -214,8 +214,8 @@ class TeachFlow(QtCore.QObject):
         self.app.sessions_changed()
         warn = [w for _, s in out for w in s["warnings"] if "clipped" not in w or "emg" in sensor_picker.current()]
         self.app.log("teach: saved " + ", ".join(p.name for p, _ in out))
-        ok, info = train_everything(self.app)
+        self.app.retrain(reason="gesture recorded")
         msg = ("Recording saved." + ("\n\n" + "\n".join("⚠ " + w for w in warn) if warn else "") +
-               f"\n\n{info}.\n\nThe new model loads and starts by itself when training finishes "
-               "(about a minute; progress is in the Train tab).")
+               "\n\nRetraining on all your gestures now (about two minutes). The model is replaced and "
+               "starts by itself when it's done; progress is on the Train page.")
         QtWidgets.QMessageBox.information(None, "Teach", msg)

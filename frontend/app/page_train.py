@@ -77,9 +77,9 @@ class TrainPage(QtWidgets.QWidget):
         s3.add(button("Go to dashboard", None, lambda: self.app.go("dashboard")))
         steps.addWidget(s3, 1)
         lay.addLayout(steps)
-        mp = Panel("Models", 4)
-        mp.add(label("Every training run creates a model. Use switches the running model; delete removes old ones.",
-                     13, 400, C["text2"], wrap=True))
+        mp = Panel("Model", 4)
+        mp.add(label("Axion keeps one model. It's replaced automatically whenever you add, re-teach or remove a "
+                     "gesture. Rename it from its ••• menu.", 13, 400, C["text2"], wrap=True))
         scroll = QtWidgets.QScrollArea()
         scroll.setWidgetResizable(True)
         self.mgrid = FlowGrid(300)

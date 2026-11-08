@@ -44,6 +44,7 @@ class AxionApp(QtWidgets.QMainWindow):
         self.gestures = G.load()["gestures"]
         self.model_info = {}
         self.pending_model = None
+        self.retrain_again = False             # a retrain was asked for while one was running: run once more after
         self.rates = {"emg": 0.0, "imu": 0.0, "hand": 0.0}
         self.probs_rate = 0.0
         self._rate_t, self._rate_c, self._probs_n, self._probs_last = time.perf_counter(), None, 0, None
@@ -229,16 +230,60 @@ class AxionApp(QtWidgets.QMainWindow):
         self.backend.control({"cmd": "load", "name": name}, loaded, timeout_s=10.0)
 
     def retrain(self, reason=""):
-        from .teach import train_everything
+        """Retrain on every recording of every defined gesture. Only one training runs at a time: a request that
+        arrives during training is merged into ONE follow-up run. With no gestures left, the model is removed."""
+        from .teach import trainable, train_everything
         if not self.backend.online:
             QtWidgets.QMessageBox.information(self, "Retrain", "The gesture engine is offline. Start it with:\n\n"
                                                                "python -m backend.serve")
             return
-        ok, info = train_everything(self, on_reply=lambda r: None if r.get("ok") else
-                                    self.log(f"train failed: {r.get('error')}"))
-        self.log(info)
+        if self.pending_model or (self.backend.status or {}).get("state") == "training":
+            self.retrain_again = True
+            self.log(f"retrain queued ({reason}): it starts when the current training finishes")
+            return
+        if not trainable()[1]:                   # nothing left to recognise: drop the model
+            self.stop_inference()
+            for m in data.list_models():
+                data.delete_model(m["name"])
+            self.model_info = {}
+            self.refresh_models()
+            self.log("no gestures left: model removed")
+            return
+
+        def replied(r):
+            if not r.get("ok"):
+                self.pending_model = None
+                if "already training" in str(r.get("error", "")):
+                    self.retrain_again = True
+                else:
+                    self.log(f"train failed: {r.get('error')}")
+        ok, info = train_everything(self, on_reply=replied)
+        self.log(info + (f"  ({reason})" if reason else ""))
         if not ok and reason == "manual":
             QtWidgets.QMessageBox.information(self, "Retrain", info)
+
+    def _training_finished(self, name):
+        """Switch to the new model, start it, and delete every older model (Axion keeps one model)."""
+        def loaded(r):
+            if not r.get("ok"):
+                QtWidgets.QMessageBox.warning(self, "Training", f"The new model couldn't be loaded: {r.get('error')}")
+                return
+
+            def started(_):
+                for m in data.list_models():
+                    if m["name"] != name:
+                        data.delete_model(m["name"])
+                self.refresh_models()
+            self.start_inference(started)
+            self.log("new model is running")
+            if self.retrain_again:
+                self.retrain_again = False
+                self.retrain(reason="changes made during training")
+            else:
+                QtWidgets.QMessageBox.information(
+                    self, "Model updated", "Your gestures are trained and being recognised now.\n\n"
+                    "Turn on 'Control my computer' on the dashboard to let them act.")
+        self.backend.control({"cmd": "load", "name": name}, loaded, timeout_s=10.0)
 
     def teach_new(self, parent):
         self.teach.start(parent)
@@ -348,16 +393,18 @@ class AxionApp(QtWidgets.QMainWindow):
             + ("" if live else "   ·   sensors not connected") + ("" if be.online else "   ·   engine offline"))
 
         if self.pending_model and be.online:
+            done = st.get("state") != "training" and (
+                st.get("model") == self.pending_model
+                or (data.MODELS / self.pending_model / "model.json").exists())
             if st.get("state") == "error":
                 QtWidgets.QMessageBox.warning(self, "Training", f"Training failed: {st.get('message')}")
                 self.pending_model = None
-            elif st.get("state") != "training" and st.get("model") == self.pending_model:
+                if self.retrain_again:
+                    self.retrain_again = False
+                    self.retrain(reason="queued")
+            elif done:
                 name, self.pending_model = self.pending_model, None
-                self.start_inference(lambda r: self.refresh_models())
-                self.log(f"new model {name} is running")
-                QtWidgets.QMessageBox.information(
-                    self, "New model ready", "Your gestures are trained and being recognised now.\n\n"
-                    "Turn on 'Control my computer' on the dashboard to let them act.")
+                self._training_finished(name)
         events = be.drain_events()
         if events:
             self.pages["dashboard"].add_events([(e, e.get("_outcome") or "") for e in events])
