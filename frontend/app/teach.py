@@ -19,7 +19,7 @@ from ..record.plan import build_blocks, total_seconds
 from ..record.runner import Runner
 from ..record.writer import StreamBuffer, write_session
 from . import sensor_picker
-from .tab_train import list_sessions
+from .data import list_sessions
 
 IMU_NOTES = "back of the right hand, palm down: +x fingertips, -y thumb, -z up"
 
@@ -182,7 +182,6 @@ class TeachFlow(QtCore.QObject):
                 g["name"] = dlg.name.text().strip()
         G.save(d)
         self.app.gestures_changed()
-        self.app.gtab.reload()
         self.gid, self.snapshot = gid, d
         self.runner = Runner(dlg.plan(g))
         self.buf = StreamBuffer()
@@ -200,7 +199,7 @@ class TeachFlow(QtCore.QObject):
             self.buf.stop()
             self.app.log("teach: cancelled, nothing saved")
             return
-        notes = self.app.rec.enotes.text()
+        notes = self.app.electrode_notes
         tag = f"teach_{self.gid}" + ("" if completed else "_partial")
 
         def work():

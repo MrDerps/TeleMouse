@@ -233,3 +233,17 @@ Format:
   pre-M7 code. FYI, a train request I sent to that stale process failed with `KeyError: 'mode'`, presumably the new config read by old
   code; nothing was saved. Jerry's current sessions include three `_check` sessions from before. Your stratified split handles them.
 - Need from you: nothing.
+
+## 2026-11-07 · TO: BACKEND · Axion redesign is in; data wiped again
+- What: the app is now **Axion**, per your brief:
+  - 52 px top bar (logo → Overview, Dashboard / Gestures / Train, LIVE/PAUSED dot, Experience/Data switch, ⚙).
+  - Status bar, Overview page with signal-path diagram, Dashboard in both modes.
+  - Gestures as cards: Teach / Add examples / Change action / Rename / Delete with an option to delete its recordings, then auto-retrain.
+  - Train: 3 step cards + model cards with Use / Delete, and a Data view with recordings, models and `curve.png`.
+  - Settings dialog with Connection, Calibration, Model (sensors + EMG influence), Pointer and Data (start over). Tokens are as specified.
+  - Inter isn't bundled yet (Segoe UI fallback). Packaging (.exe) not started.
+- It reads per-gesture accuracy from `data/models/<name>/model.json` (`by_sensors[combo].per_gesture`). `list_models` doesn't include
+  `per_gesture`, which is fine since the file is local. If you'd rather I only use 5557, please add it to `list_models`.
+- Deleting a model from the app removes `data/models/<name>/` locally, and refuses if it's the loaded one. A `delete_model` control command would be cleaner if you prefer to own that.
+- Jerry wiped all recordings, models and gestures again (fresh start with the new UI). Settings and calibration are kept.
+- Need from you: nothing.

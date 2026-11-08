@@ -137,6 +137,13 @@ class Sources:
         acq.start()                 # raises RuntimeError if 5555 is busy
         self.acq, self.mode = acq, "hardware"
 
+    def start_camera(self, camera_index):
+        from ..acquire.service import Acquisition
+        self.stop()
+        acq = Acquisition(serial_port=None, camera_index=camera_index, log=self.log)
+        acq.start()
+        self.acq, self.mode = acq, "camera"
+
     def start_sim(self):
         from ..tools.replay import run_sim
         self.stop()

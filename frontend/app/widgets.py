@@ -38,7 +38,7 @@ class ProbBars(pg.PlotWidget):
             self.clear()
             self.classes = list(classes)
             y = np.arange(len(classes))
-            self.bars = pg.BarGraphItem(x0=0, y=y, height=0.7, width=np.zeros(len(classes)), brush="#4ea1ff")
+            self.bars = pg.BarGraphItem(x0=0, y=y, height=0.6, width=np.zeros(len(classes)), brush="#5B9BFF", pen=None)
             self.addItem(self.bars)
             self.getPlotItem().getAxis("left").setTicks([[(i, c) for i, c in enumerate(classes)]])
             self.setYRange(-0.6, len(classes) - 0.4)
@@ -51,7 +51,7 @@ class CameraView(QtWidgets.QLabel):
     def __init__(self):
         super().__init__(alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(320, 240)
-        self.setStyleSheet("background:#0d1117; color:#6e7681;")
+        self.setStyleSheet("background:#0E0E10; color:#5C5C66; border-radius: 8px;")
         self.setText("no camera")
 
     def show_frame(self, frame, items):
@@ -76,10 +76,10 @@ class CameraView(QtWidgets.QLabel):
     def show_landmarks(self, lm):
         w, h = max(self.width(), 320), max(self.height(), 240)
         pm = QtGui.QPixmap(w, h)
-        pm.fill(QtGui.QColor("#0d1117"))
+        pm.fill(QtGui.QColor("#0E0E10"))
         if lm is not None:
             qp = QtGui.QPainter(pm)
-            qp.setPen(QtGui.QPen(QtGui.QColor("#50dc78"), 2))
+            qp.setPen(QtGui.QPen(QtGui.QColor("#6FD6C3"), 2))
             pts = [QtCore.QPointF(x * w, y * h) for x, y, _ in lm]
             for a, b in HAND_EDGES:
                 qp.drawLine(pts[a], pts[b])

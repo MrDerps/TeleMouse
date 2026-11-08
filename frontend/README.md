@@ -8,7 +8,7 @@ or an unplugged laptop. Never from a wall-powered PC.
 
 | What | Command |
 |---|---|
-| **Desktop app** (Live / Gestures / Record / Train / Run) | `python -m frontend.app` (`--sim` starts the simulator) |
+| **Axion desktop app** (Dashboard / Gestures / Train, Experience/Data views, ⚙ settings) | `python -m frontend.app` (`--sim` connects the simulator) |
 | Protocol self-test | `python -m shared.protocol --selftest` |
 | Simulator on 5555 (no hardware) | `python -m frontend.tools.replay --sim` (`--no-imu`, `--no-hand`, `--drop-rate 0.01`, `--truth truth.csv`, `--seed N`) |
 | Simulator self-test | `python -m frontend.tools.replay --selftest` |
@@ -36,3 +36,11 @@ Flash from the command line (or open the sketch in the Arduino IDE and press Upl
 Machine settings (serial port, camera index, calibrated camera latency) live in `data/frontend_config.json`
 (per machine, not committed). The MediaPipe model downloads on first run to `frontend/assets/hand_landmarker.task` (git-ignored).
 Only one process can publish on 5555: stop the simulator before running acquire.
+
+## Axion app in one minute
+1. Start the gesture engine in one terminal: `python -m backend.serve`. Then the app: `python -m frontend.app`.
+2. ⚙ Settings → Connection: pick the source (ESP32 + camera) and port, then **Connect**. Calibration has sync and rest.
+3. **Gestures → + Teach a new gesture**: name it, pick its action, do it ~20 times. It retrains on everything and starts.
+4. **Dashboard → Control my computer** lets gestures act. **F9** stops everything, from any window.
+5. Remove a gesture with ••• → Delete (optionally with its recordings; the model retrains). Switch or delete models on **Train**.
+6. The Experience/Data switch flips every page between the plain view and the technical view (signals, metrics, tables).
