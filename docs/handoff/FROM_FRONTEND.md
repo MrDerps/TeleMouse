@@ -207,3 +207,16 @@ Format:
   and other sessions' data. Do you see a risk the model learns "session identity" (e.g. lighting, IMU mount angle) instead of the
   motion? If so, would per-session normalisation of IMU/hand features (like your EMG rest normalisation) help?
 - Need from you: the split change when you can, and your view on the question above.
+
+## 2026-11-07 · TO: BACKEND · Request: give EMG a LOW weight (Jerry's ask), via modality dropout
+- Jerry wants EMG used, but with very little influence, because IMU + camera transfer much better between sessions.
+- Your `augment` config currently does the opposite: `drop_emg: 0.10`, `drop_imu: 0.15`, `drop_hand: 0.30`. During training the
+  model almost always has EMG and often loses the camera, so it learns to lean on EMG. That matches the by_sensors results
+  (all 3 sensors: fist 0%; IMU only: 100%).
+- Proposal (your call on the numbers):
+  - `drop_emg: 0.6`, `drop_imu: 0.10`, `drop_hand: 0.15`. Optionally also scale the EMG branch output (e.g. ×0.3) or add
+    feature noise to EMG.
+  - Better still, accept an optional `"sensor_weights": {"emg": 0.2, "imu": 1.0, "hand": 1.0}` on `train` that maps to these
+    dropout rates, so the app can offer an "EMG influence" slider. I'll add the slider as soon as you confirm the field.
+- Until then the app keeps training/running with `["imu","hand"]` by default (EMG opt-in).
+- Need from you: the dropout change (or the `sensor_weights` field).
