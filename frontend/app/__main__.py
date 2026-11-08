@@ -65,6 +65,8 @@ class AxionApp(QtWidgets.QMainWindow):
                                load_settings(), log=self.log)
         self.pointer.start()
         self.executor.pointer = self.pointer
+        self.pointer.on_pose_release = self.executor.pose_released
+        self.executor.on_event = self._extra_event
         from .teach import TeachFlow
         self.teach = TeachFlow(self)
 
@@ -296,6 +298,12 @@ class AxionApp(QtWidgets.QMainWindow):
         self.gestures_changed()
         self.sessions_changed()
         self.log("all recordings, models and gestures deleted")
+
+    def _extra_event(self, e):
+        """Events from the frontend itself (e.g. a hold released because the hand changed); any thread."""
+        e = dict(e, rx=time.perf_counter())
+        with self.backend.lock:
+            self.backend.events.append(e)
 
     # ------------------------------------------------------------------ safety
     def set_actions_enabled(self, on):

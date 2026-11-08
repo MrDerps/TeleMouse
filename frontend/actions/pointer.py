@@ -37,6 +37,16 @@ TOPIC_POINTER_HAND = b"pointer_hand"
 OPEN_ABOVE, CLOSED_BELOW = 1.55, 1.25      # openness = mean(tip-wrist) / palm length, with hysteresis
 
 
+POSE_PTS = [4, 8, 12, 16, 20, 6, 10, 14, 18]   # finger tips + PIP joints
+POSE_DEV = 0.35                               # mean landmark change (palm lengths) that counts as "hand changed"
+
+
+def pose_vec(lm):
+    """Hand shape, independent of position and size: finger points relative to the wrist / palm length."""
+    palm_len = np.linalg.norm(lm[9, :2] - lm[0, :2]) + 1e-6
+    return (lm[POSE_PTS, :2] - lm[0, :2]) / palm_len
+
+
 PINCH_ON, PINCH_OFF = 0.30, 0.45          # thumb-index distance / palm length, with hysteresis
 
 
@@ -142,6 +152,10 @@ class Pointer:
         self.r_prev = None
         self.f_right = OneEuro()
         self.pinch = 0.0
+        # hold lock: a hold gesture stays active while the hand keeps the shape it had when it started
+        self.pose_watch = {}                          # gid -> {"base", "n", "lost"}
+        self.pose_lock = threading.Lock()
+        self.on_pose_release = None                   # executor callback(gid), called from this thread
         self.left_prev = None
         self.f_left = OneEuro()
         self.openness = 0.0
@@ -347,12 +361,55 @@ class Pointer:
             v[1] = -v[1]
         self._move(v / 30)
 
+    # ---------------------------------------------------------------- hold lock
+    def watch_pose(self, gid):
+        with self.pose_lock:
+            self.pose_watch[gid] = {"base": None, "n": 0, "lost": None}
+
+    def unwatch_pose(self, gid):
+        with self.pose_lock:
+            self.pose_watch.pop(gid, None)
+
+    def pose_held(self, gid) -> bool:
+        with self.pose_lock:
+            w = self.pose_watch.get(gid)
+            return bool(w and w["base"] is not None and w["lost"] is None)
+
+    def _check_poses(self, a, now):
+        released = []
+        with self.pose_lock:
+            for gid, w in list(self.pose_watch.items()):
+                if len(a) == 0:
+                    w["lost"] = w["lost"] or now
+                    if now - w["lost"] > 0.5:             # hand gone for half a second
+                        released.append(gid)
+                    continue
+                w["lost"] = None
+                v = pose_vec(a)
+                if w["base"] is None:
+                    w["base"] = v
+                    continue
+                dev = float(np.mean(np.linalg.norm(v - w["base"], axis=1)))
+                w["n"] = w["n"] + 1 if dev > POSE_DEV else 0
+                if w["n"] >= 3:                           # 3 frames (~0.1 s) clearly different
+                    released.append(gid)
+            for gid in released:
+                self.pose_watch.pop(gid, None)
+        for gid in released:
+            if self.on_pose_release:
+                try:
+                    self.on_pose_release(gid)
+                except Exception as e:
+                    self.log(f"hold release error: {e}")
+
     def set_clutch(self, on: bool):
         self.clutch_gesture = bool(on)
         if not on:
             self.r_prev = None
 
     def _hand(self, a, h, now):
+        if self.pose_watch:
+            self._check_poses(a, now)
         if self.s["mode"] in ("right_pinch", "right_gesture"):
             self._right(a, h, now)
             return

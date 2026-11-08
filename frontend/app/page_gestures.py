@@ -11,15 +11,24 @@ from .theme import C
 from .ui import FlowGrid, button, divider, label, tag
 
 class ActionDialog(QtWidgets.QDialog):
-    def __init__(self, parent, action, kind, title="What should it do?"):
+    """Edit a gesture's type (instant / hold) and what it does."""
+
+    def __init__(self, parent, action, kind, title="Edit gesture"):
         super().__init__(parent)
+        from .ui import Segmented
         self.setWindowTitle(title)
-        self.setMinimumWidth(420)
-        self.kind = kind
+        self.setMinimumWidth(440)
+        self.kind0 = kind or "instant"
         lay = QtWidgets.QVBoxLayout(self)
-        lay.setContentsMargins(22, 20, 22, 18)
+        lay.setContentsMargins(24, 20, 24, 18)
         lay.setSpacing(12)
         lay.addWidget(label(title, 18, 600, wrap=True))
+        lay.addWidget(label("TYPE", 11, 500, C["label"], tracking=0.08))
+        self.kind_seg = Segmented(["Instant: do it once", "Hold: keep doing it"], 1 if self.kind0 == "hold" else 0)
+        lay.addWidget(self.kind_seg)
+        self.kind_note = label("", 12, 400, C["text2"], wrap=True)
+        lay.addWidget(self.kind_note)
+        lay.addWidget(label("WHAT IT DOES", 11, 500, C["label"], tracking=0.08))
         self.editor = ActionEditor(action)
         lay.addWidget(self.editor)
         self.warn = label("", 12, 400, C["warn"], wrap=True)
@@ -30,14 +39,21 @@ class ActionDialog(QtWidgets.QDialog):
         self.ok = button("Save", "Primary", self.accept)
         row.addWidget(self.ok)
         lay.addLayout(row)
-        self.editor.needs_hold.connect(self._hold)      # after the Save button exists
-        self._hold(self.editor.requires_hold())
+        self.editor.needs_hold.connect(self._update)      # connect after the Save button exists
+        self.kind_seg.changed.connect(self._update)
+        self._update()
 
-    def _hold(self, needs):
-        bad = needs and self.kind != "hold"
-        self.warn.setText("This gesture is an instant gesture; this action needs a hold gesture. Teach a new hold "
-                          "gesture for it." if bad else "")
+    @property
+    def kind(self):
+        return "hold" if self.kind_seg.index() == 1 else "instant"
+
+    def _update(self, *_):
+        bad = self.editor.requires_hold() and self.kind != "hold"
+        self.warn.setText("This action needs the Hold type." if bad else "")
         self.ok.setEnabled(not bad)
+        self.kind_note.setText("Changing the type retrains the model (about a minute)." if self.kind != self.kind0 else
+                               ("Hold: active from when you start the gesture until your hand changes shape."
+                                if self.kind == "hold" else "Instant: fires once each time you do it."))
 
     def action(self):
         return self.editor.action(self.kind)
@@ -148,7 +164,7 @@ class GesturesPage(QtWidgets.QWidget):
         ar = QtWidgets.QHBoxLayout()
         ar.addWidget(label(describe(g.get("action")), 14, 400, C["text"]))
         ar.addStretch(1)
-        ar.addWidget(button("Change", "Ghost", lambda: self.change_action(g["id"])))
+        ar.addWidget(button("Edit", "Ghost", lambda: self.change_action(g["id"])))
         lay.addLayout(ar)
         lay.addWidget(divider())
         stats = QtWidgets.QHBoxLayout()
@@ -168,7 +184,7 @@ class GesturesPage(QtWidgets.QWidget):
         more = button("•••", "Ghost")
         menu = QtWidgets.QMenu(more)
         menu.addAction("Rename…", lambda: self.rename(g["id"]))
-        menu.addAction("Change action…", lambda: self.change_action(g["id"]))
+        menu.addAction("Change type or action…", lambda: self.change_action(g["id"]))
         menu.addSeparator()
         menu.addAction("Delete…", lambda: self.delete(g["id"]))
         more.setMenu(menu)
@@ -192,11 +208,15 @@ class GesturesPage(QtWidgets.QWidget):
         g = G.get(d, gid)
         if not g:
             return
-        dlg = ActionDialog(self, g.get("action"), g.get("kind"), f"What should '{g.get('name') or gid}' do?")
+        dlg = ActionDialog(self, g.get("action"), g.get("kind"), f"Edit '{g.get('name') or gid}'")
         if dlg.exec() == QtWidgets.QDialog.DialogCode.Accepted:
+            kind_changed = dlg.kind != g.get("kind", "instant")
             g["action"] = dlg.action()
+            g["kind"] = dlg.kind
             G.save(d)
             self.app.gestures_changed()
+            if kind_changed:                       # the backend labels instant vs hold differently: retrain
+                self.app.retrain(reason=f"'{g.get('name') or gid}' is now {dlg.kind}")
 
     def rename(self, gid):
         d = G.load()

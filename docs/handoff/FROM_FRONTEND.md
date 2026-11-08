@@ -247,3 +247,19 @@ Format:
 - Deleting a model from the app removes `data/models/<name>/` locally, and refuses if it's the loaded one. A `delete_model` control command would be cleaner if you prefer to own that.
 - Jerry wiped all recordings, models and gestures again (fresh start with the new UI). Settings and calibration are kept.
 - Need from you: nothing.
+
+## 2026-11-07 · TO: BACKEND · Hold gestures end almost immediately: please label the whole held span
+- What we see: Jerry's `fist` (kind=hold, `auto_1107_193557`, all 3 sensors) starts reliably (conf 0.96–1.00), but `end` arrives
+  0.06–1.14 s later (**median ~0.25 s**, 20 holds in your serve log) while he's still holding the fist. The probability falls
+  back below `off_thr` right after the onset.
+- Likely cause: the localiser labels the activity burst (motion / EMG onset) for holds too. The **static held pose** afterwards
+  has little motion, so it's labelled `none` or ignored, and the model learns "closing the fist" rather than "fist is closed".
+  The cue for holds says "hold it once, until the bar ends" (3 s), so the hold spans from onset to about the cue end.
+- Request: for `kind == "hold"`, label from the detected onset to the end of the cue window (or until hand shape / EMG return to
+  baseline), so the held pose itself is positive. Maybe also weight hand-shape features more for holds.
+- Frontend workaround in place now ("hold lock"): after a hold `start`, the app keeps the action active while the hand keeps the
+  shape it had at the start (landmarks relative to the wrist / palm size). It releases when the shape changes or the hand is out of
+  view for 0.5 s, and ignores your early `end` meanwhile. So your `end` is still used, just not trusted while the pose is unchanged.
+- Also: the app now lets the user switch a gesture between instant and hold after recording. It retrains automatically, since your
+  labelling depends on `kind`.
+- Need from you: the hold labelling change.

@@ -33,7 +33,8 @@ class Executor:
         self.held = {}                 # gesture id -> ("drag", button) | ("scroll", stop_event)
         self.pointer_on = True         # a mode_toggle gesture turns the pointer off/on
         self.listener = None
-        self.pointer = None            # set by the app: Pointer, for "pointer_hold" gestures
+        self.pointer = None            # set by the app: Pointer, for "pointer_hold" gestures and the hold lock
+        self.on_event = None           # app callback(dict) to log releases that don't come from the backend
 
     # ------------------------------------------------------------------ kill switch
     def start_hotkey(self, on_kill):
@@ -54,6 +55,9 @@ class Executor:
     def release_all(self):
         with self.lock:
             held, self.held = self.held, {}
+        if self.pointer:
+            for gid in held:
+                self.pointer.unwatch_pose(gid)
         for gid, (kind, x) in held.items():
             try:
                 if kind == "drag":
@@ -73,6 +77,12 @@ class Executor:
         g = next((x for x in st.gestures if x["id"] == gid), None)
         a = (g or {}).get("action") or {"type": "none"}
         if kind == "end":                               # always allowed: it only ever releases
+            with self.lock:
+                held = gid in self.held
+            if held and self.pointer and self.pointer.pose_held(gid):
+                return "end ignored: hand still in the gesture (released when your hand changes)"
+            if self.pointer:
+                self.pointer.unwatch_pose(gid)
             return self._end(gid) or "end"
         if st.killed:
             return "ignored (kill switch)"
@@ -89,6 +99,16 @@ class Executor:
         B = self._mouse_mod.Button
         return {"left": B.left, "right": B.right, "middle": B.middle}.get(name or "left", B.left)
 
+    def pose_released(self, gid):
+        """Hold lock: the hand changed shape (or left view): release whatever this hold gesture is holding."""
+        out = self._end(gid)
+        if out and self.on_event:
+            self.on_event({"id": gid, "kind": "end", "conf": 1.0, "_outcome": out + " (hand changed)"})
+
+    def _watch(self, gid):
+        if self.pointer:
+            self.pointer.watch_pose(gid)
+
     def _do(self, gid, kind, a):
         t = a.get("type", "none")
         if t == "click":
@@ -97,11 +117,14 @@ class Executor:
             self.mouse.click(self._button(a.get("button")), 2)
         elif t == "scroll":
             dx, dy = int(a.get("dx", 0)), int(a.get("dy", 0))
+            if kind == "start" and not a.get("continuous"):
+                a = dict(a, continuous=True)       # a hold gesture bound to scroll scrolls while held
             if kind == "start" and a.get("continuous"):
                 stop = threading.Event()
                 with self.lock:
                     self.held[gid] = ("scroll", stop)
                 threading.Thread(target=self._scroll_loop, args=(dx, dy, stop), daemon=True).start()
+                self._watch(gid)
                 return f"scrolling {dx},{dy} while held"
             self.mouse.scroll(dx, dy)
         elif t == "drag":
@@ -111,6 +134,7 @@ class Executor:
             self.mouse.press(b)
             with self.lock:
                 self.held[gid] = ("drag", b)
+            self._watch(gid)
             return f"drag: {a.get('button', 'left')} pressed"
         elif t == "key":
             self._combo(a.get("combo", ""))
@@ -121,6 +145,7 @@ class Executor:
                 self.pointer.set_clutch(True)
             with self.lock:
                 self.held[gid] = ("pointer", None)
+            self._watch(gid)
             return "mouse follows the hand"
         elif t == "mode_toggle":
             self.pointer_on = not self.pointer_on
