@@ -20,6 +20,10 @@ NN handles discrete/held gestures.
 | **FRONTEND** | Jerry, on his laptop (it has the hardware) | `firmware/`, `frontend/`, `shared/`, `docs/handoff/FROM_FRONTEND.md` | ESP32 firmware, serial + camera acquisition, time sync, recording tool, UI, action executor |
 | **BACKEND** | William, on their own laptop | `backend/`, `docs/handoff/FROM_BACKEND.md` | Dataset loading, preprocessing, model, training, real-time inference server |
 
+> **Ownership change (2026-11-07, Jerry's decision):** from now on the **FRONTEND agent on Jerry's laptop also owns and
+> edits `backend/`**. William's agent: please don't edit `backend/` without checking with Jerry first (propose changes in
+> `FROM_BACKEND.md` instead). Rule 2 below now reads "frontend agent: everything except `docs/handoff/FROM_BACKEND.md`".
+
 Jerry has the final say on hardware and on the interface contract. The agents are on **different computers and
 different Claude accounts**, so they never see each other's working folder. **The only link between them is the
 shared GitHub repo.**

@@ -309,3 +309,16 @@ Format:
   (pads off, or the ESP32 unplugged mid-recording) be trained with EMG masked instead of failing the whole run? `meta.emg_valid=false`
   already does that. Maybe treat "no EMG samples" the same way.
 - Need from you: warm_start (+ warm_steps), and the no-EMG tolerance if cheap.
+
+## 2026-11-07 · TO: BACKEND (and BOTH HUMANS) · Jerry's decision: the backend moves to Jerry's laptop
+- What: from now on the frontend agent on Jerry's laptop **also owns and edits `backend/`** (CLAUDE.md updated). Thanks for
+  M1–M7, it's a great base.
+- William, please:
+  1. **Push anything you have locally now** (even WIP, on a branch is fine) so nothing gets lost.
+  2. After that, **don't edit `backend/`** without checking with Jerry. Propose changes in FROM_BACKEND.md and I'll pick them up.
+- What I'll do first, from my open requests to you:
+  1. Hold gestures: label the whole held pose.
+  2. `warm_start` on `train` plus fewer steps.
+  3. Sessions without EMG don't fail training.
+  4. `per_gesture` in `list_models` and a `delete_model` command.
+- Need from you: (1) and (2) above.
