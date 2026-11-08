@@ -72,8 +72,8 @@ class GesturesTab(QtWidgets.QWidget):
     def __init__(self, app):
         super().__init__()
         self.app = app
-        self.table = QtWidgets.QTableWidget(0, 4)
-        self.table.setHorizontalHeaderLabels(["id", "name", "kind", "action"])
+        self.table = QtWidgets.QTableWidget(0, 6)
+        self.table.setHorizontalHeaderLabels(["id", "name", "kind", "action", "examples", "accuracy (current model)"])
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -84,13 +84,18 @@ class GesturesTab(QtWidgets.QWidget):
         teach.setToolTip("Record only the new gesture (+ a few refresher reps of the others), then retrain on everything")
         teach.clicked.connect(lambda: self.app.teach.start(self))
         btns.addWidget(teach)
-        for text, fn in [("Add…", self.add), ("Rename…", self.rename), ("Set action…", self.edit_action),
+        more = QtWidgets.QPushButton("Add examples…")
+        more.setToolTip("Record more examples of the selected gesture, then retrain")
+        more.clicked.connect(lambda: self._selected() and self.app.teach.start(self, self._selected()["id"]))
+        btns.addWidget(more)
+        for text, fn in [("Add (no recording)…", self.add), ("Rename…", self.rename), ("Set action…", self.edit_action),
                          ("Delete", self.delete)]:
             b = QtWidgets.QPushButton(text)
             b.clicked.connect(fn)
             btns.addWidget(b)
         btns.addStretch(1)
-        note = QtWidgets.QLabel("A gesture id is permanent: never reuse an id for a different motion (recordings refer to it). "
+        note = QtWidgets.QLabel("Teach records ONE gesture (no alternating) and retrains on all your recordings. "
+                                "Deleted gestures are left out of the next training. A gesture id is permanent: never reuse an id for a different motion (recordings refer to it). "
                                 "Actions are only used by this app; the backend ignores them.")
         note.setWordWrap(True)
         lay = QtWidgets.QVBoxLayout(self)
@@ -99,14 +104,41 @@ class GesturesTab(QtWidgets.QWidget):
         lay.addWidget(note)
         self.reload()
 
+    def _accuracy(self):
+        """gesture id -> text, from the backend's validation of the loaded model for the selected sensors."""
+        from .sensor_picker import current, key
+        be = self.app.backend
+        m = self.app.model_info.get((be.status or {}).get("model")) if be.online else None
+        if not m:
+            return {}
+        bs = (m.get("by_sensors") or {}).get(key(current())) or {}
+
+        def ok(x):
+            return isinstance(x, (int, float)) and x == x
+        out = {}
+        for gid, v in (bs.get("per_gesture") or {}).items():
+            rec, prec = v.get("recall"), v.get("precision")
+            out[gid] = (f"recall {rec:.0%}" if ok(rec) else "recall -") + (f", precision {prec:.0%}" if ok(prec) else "")
+        return out
+
     def reload(self):
+        from .tab_train import list_sessions
         self.d = G.load()
+        counts = {}
+        for sess in list_sessions():
+            for gid, n in sess["labels"].items():
+                if isinstance(n, int):
+                    counts[gid] = counts.get(gid, 0) + n
+        acc = self._accuracy()
         self.table.setRowCount(0)
         for g in self.d["gestures"]:
             r = self.table.rowCount()
             self.table.insertRow(r)
-            for c, v in enumerate([g["id"], g.get("name", ""), g.get("kind", "instant"), describe(g.get("action"))]):
+            vals = [g["id"], g.get("name", ""), g.get("kind", "instant"), describe(g.get("action")),
+                    str(counts.get(g["id"], 0)), acc.get(g["id"], "not in the loaded model" if acc else "-")]
+            for c, v in enumerate(vals):
                 self.table.setItem(r, c, QtWidgets.QTableWidgetItem(v))
+        self.table.resizeColumnsToContents()
         self.app.gestures_changed()
 
     def _selected(self):

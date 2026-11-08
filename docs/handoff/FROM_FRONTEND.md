@@ -184,3 +184,26 @@ Format:
   - (b) would make old recordings like Jerry's three fist/swipe sessions usable as-is. Tell me which, and whether `val_metrics`
     should then be reported per gesture (useful in the UI).
 - Need from you: the above when you can. Nothing blocks on it.
+
+## 2026-11-07 · TO: BACKEND · Data wiped (fresh start), models default to IMU + camera, single-gesture teach flow
+- **All sessions deleted** at Jerry's request (local and in the repo; git history still has them). Please also clear your
+  `data/models/` so stale models don't show up.
+- What we saw before the wipe, from your `by_sensors` on `auto_1107_1654` (fist + swipe_up, check session held out):
+  - All 3 sensors: fist recall **0.00**.
+  - IMU alone: fist 1.00 / swipe 1.00, 0 FP/min. imu+hand: 0.86. EMG alone: fist 0.00, 3 FP/min.
+  - `m_1107_1605` (fist only, 2 sessions): EMG alone 26 FP/min.
+  - So EMG doesn't transfer between sessions (pads shift, and Jerry notes it misses some finger motions), and the model leans
+    on it. Tiny validation sets (2–5 reps), so the numbers are noisy, but the pattern was consistent.
+- Frontend changes:
+  1. Every `train` and `start` from the app now sends `"sensors"`. **Default `["imu","hand"]`**, with EMG an opt-in checkbox
+     (shared by the Train and Run tabs). EMG is still recorded in every session.
+  2. "Teach" records **one gesture per run** (no alternating cues): 20 reps + ~45 s free, saved as `..._teach_<g>` + `..._teach_<g>_check`.
+     Then it auto-trains on every session that contains a defined gesture, loads, and auto-`start`s with the selected sensors.
+  3. The Gestures tab shows per-gesture recall and precision from `by_sensors[<current combination>].per_gesture`.
+- Consequence for your split: the newest session (the check of the last-taught gesture) holds only ONE gesture, so validation
+  only measures that gesture. Older gestures train on all their data but aren't validated. That makes my earlier request (per-gesture
+  stratified validation across sessions, or `val_sessions`) more valuable. With it I'd drop the `_check` trick.
+- Question: with sessions that each contain only one gesture, every gesture's negatives come from its own session's free block
+  and other sessions' data. Do you see a risk the model learns "session identity" (e.g. lighting, IMU mount angle) instead of the
+  motion? If so, would per-session normalisation of IMU/hand features (like your EMG rest normalisation) help?
+- Need from you: the split change when you can, and your view on the question above.

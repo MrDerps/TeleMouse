@@ -63,6 +63,7 @@ class App(QtWidgets.QMainWindow):
         self.pointer.start()
 
         self.pending_model = None             # set by "train on everything": announce when it's loaded
+        self.model_info = {}                  # model name -> list_models entry (accuracy per sensor combination)
         from .teach import TeachFlow
         self.teach = TeachFlow(self)
         self.tabs = QtWidgets.QTabWidget()
@@ -101,6 +102,15 @@ class App(QtWidgets.QMainWindow):
     def sessions_changed(self):
         self.train.reload_sessions()
 
+    def sensors_changed(self, sensors):
+        for picker in (self.train.sensors, self.run.sensors):
+            picker.set(sensors)
+        self.gtab.reload()
+
+    def start_inference(self, callback=None):
+        from .sensor_picker import current
+        self.backend.control({"cmd": "start", "sensors": current()}, callback, timeout_s=5.0)
+
     def set_actions_enabled(self, on):
         if on:
             self.killed = False
@@ -129,10 +139,11 @@ class App(QtWidgets.QMainWindow):
             elif st.get("state") != "training" and st.get("model") == self.pending_model:
                 name, self.pending_model = self.pending_model, None
                 self.train.refresh_models()
-                self.statusBar().showMessage(f"model {name} trained and loaded")
+                self.start_inference(lambda r: self.statusBar().showMessage(
+                    f"model {name} running" if r.get("ok") else f"start failed: {r.get('error')}"))
                 QtWidgets.QMessageBox.information(
-                    self, "New model ready", f"'{name}' is trained and loaded ({st.get('message') or ''}).\n\n"
-                    "Run tab: Calibrate rest, then Start inference. The Train tab's model list shows its accuracy.")
+                    self, "New model ready", f"'{name}' is trained, loaded and running.\n\n"
+                    "The Gestures tab shows each gesture's accuracy. Tick 'Enable actions' in the Run tab to use it.")
         events = self.backend.drain_events()
         if events:
             self.live.add_events(events)
@@ -140,6 +151,9 @@ class App(QtWidgets.QMainWindow):
         now = time.perf_counter()
         if not self.backend.online and self.executor.held:
             self.executor.release_all()            # never leave a button held if the backend vanishes
+        if self.backend.online and not self.model_info and now - getattr(self, "_mi_t", 0) > 5:
+            self._mi_t = now
+            self.train.refresh_models()
         if now - self._last_be_poll > 5 and not self.backend.online:
             self._last_be_poll = now           # nudge: a status request also detects a backend that just started
             self.backend.control({"cmd": "status"}, lambda r: None, timeout_s=1.0)

@@ -80,6 +80,9 @@ class TrainTab(QtWidgets.QWidget):
         right.addRow(QtWidgets.QLabel("Gestures"))
         right.addRow(self.glist)
         right.addRow("Model name", self.name)
+        from .sensor_picker import SensorPicker
+        self.sensors = SensorPicker(app, "Train with")
+        right.addRow(self.sensors)
         right.addRow(self.all_btn)
         right.addRow(self.train_btn)
         right.addRow(self.progress)
@@ -125,7 +128,8 @@ class TrainTab(QtWidgets.QWidget):
             QtWidgets.QMessageBox.information(self, "Train", "Choose sessions, gestures and a model name.")
             return
         self.msg.setText("sending train request…")
-        self.app.backend.control({"cmd": "train", "gestures": gest, "sessions": sessions, "name": name},
+        self.app.backend.control({"cmd": "train", "gestures": gest, "sessions": sessions, "name": name,
+                                  "sensors": self.sensors.value()},
                                  self._train_reply, timeout_s=5.0)
 
     def train_all(self):
@@ -144,6 +148,8 @@ class TrainTab(QtWidgets.QWidget):
             self.msg.setText(f"list_models: {r.get('error')}")
             return
         self.models.setRowCount(0)
+        self.app.model_info = {m.get("name"): m for m in r.get("models", [])}
+        self.app.gtab.reload()
         for m in r.get("models", []):
             row = self.models.rowCount()
             self.models.insertRow(row)

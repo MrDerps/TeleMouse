@@ -18,7 +18,7 @@ class RunTab(QtWidgets.QWidget):
         self.cal_btn = QtWidgets.QPushButton("Calibrate rest (relax 3 s)")
         self.cal_btn.clicked.connect(self.calibrate)
         self.start_btn = QtWidgets.QPushButton("Start inference")
-        self.start_btn.clicked.connect(lambda: self.app.backend.control({"cmd": "start"}, self._reply))
+        self.start_btn.clicked.connect(lambda: self.app.start_inference(self._reply))
         self.stop_btn = QtWidgets.QPushButton("Stop inference")
         self.stop_btn.clicked.connect(lambda: self.app.backend.control({"cmd": "stop"}, self._reply))
         self.enable = QtWidgets.QCheckBox("Enable actions (clicks AND cursor movement)")
@@ -36,9 +36,13 @@ class RunTab(QtWidgets.QWidget):
         kill = QtWidgets.QLabel("Kill switch: F9 disables all actions instantly (works from any window).")
         kill.setStyleSheet("color:#f0b429;")
 
+        from .sensor_picker import SensorPicker
+        self.sensors = SensorPicker(app, "Run with")
         ctl = QtWidgets.QHBoxLayout()
         for w in (self.cal_btn, self.start_btn, self.stop_btn):
             ctl.addWidget(w)
+        ctl.addSpacing(20)
+        ctl.addWidget(self.sensors)
         ctl.addStretch(1)
         act = QtWidgets.QHBoxLayout()
         act.addWidget(self.enable)
@@ -72,7 +76,13 @@ class RunTab(QtWidgets.QWidget):
         self.app.conf_threshold = v / 100
 
     def _reply(self, r):
-        self.reply.setText("ok" if r.get("ok") else f"<span style='color:#f85149'>{r.get('error')}</span>")
+        if r.get("ok") and r.get("accuracy"):
+            a = r["accuracy"]
+            self.reply.setText(f"running with {', '.join(r.get('sensors', []))}: expected recall "
+                               f"{a.get('recall', 0):.0%}, precision {a.get('precision', 0):.0%}, "
+                               f"{a.get('fp_per_min', 0):.1f} false triggers/min (validation)")
+        else:
+            self.reply.setText("ok" if r.get("ok") else f"<span style='color:#f85149'>{r.get('error')}</span>")
 
     def calibrate(self):
         QtWidgets.QMessageBox.information(self, "Calibrate rest",
