@@ -6,7 +6,10 @@ Inside a gesture cue window, frames with score > max(k_abs, k_rel * window peak)
 than merge_gap are merged. instant -> the span with the largest integrated score is the occurrence; other strong
 spans (peak >= burst_rel x window peak: a repeat, or a preparatory phase such as opening the hand before a pinch)
 are IGNORED, not taught as `none` (with labels.multi_burst=true every strong span becomes its own occurrence
-instead); hold -> first..last active.
+instead); hold -> from the first active frame (the onset: closing the fist, ...) to the END of the cue window,
+because the cue says "hold until the bar ends" and a static held pose has almost no activity of its own (only the
+onset and the release move). If a clearly separate later burst appears inside the window (the user released early),
+the hold ends where that burst starts. (labels.hold_to_cue_end=false restores first..last active.)
 Frames in the span get the gesture label, frames just outside it (edge_ignore_s) are ignored (-1), everything
 else is `none` (0). Cue windows of gestures not in the class list are ignored entirely (not called `none`).
 If nothing is active, fall back to the window centre (logged).
@@ -153,7 +156,16 @@ def localise(T, X, M, labels: list[dict], classes: list[str], kinds: dict[str, s
             found = [(max(0, c - half), min(len(w), c + half))]
             log.info("fallback to window centre: %s at t=%.2f", lab, r["t_start"])
         elif kind == "hold":
-            found = [(spans[0][0], spans[-1][1])]
+            if lc.get("hold_to_cue_end", True):
+                end = len(w)                              # w ends at the cue end
+                gap = int(round(lc.get("hold_release_gap_s", 0.4) / hop))
+                for s in spans[1:]:                       # a separate later burst = an early release
+                    if s[0] - spans[0][1] >= gap:
+                        end = s[0]
+                        break
+                found = [(spans[0][0], end)]
+            else:
+                found = [(spans[0][0], spans[-1][1])]
         else:
             pk = sw.max()
             strong = [s for s in spans if sw[s[0]:s[1]].max() >= lc.get("burst_rel", 0.5) * pk]

@@ -57,6 +57,12 @@ def build_session(sess: Session, classes: list[str], kinds: dict[str, str], cfg:
 def load_dataset(paths, gestures: list[str] | None, cfg: dict, sensors=MODALITIES, val_sessions=None):
     """val_sessions: optional session ids held out whole as validation (default: per-gesture stratified split)."""
     sessions = [load_session(p) for p in paths]
+    empty = [s.id for s in sessions if len(s.emg) == 0]
+    if empty:                                      # EMG drives the frame clock: nothing to learn from these
+        log.warning("skipping %d session(s) with no EMG samples: %s", len(empty), empty)
+        sessions = [s for s in sessions if len(s.emg) > 0]
+        if not sessions:
+            raise ValueError("no usable sessions (none has EMG samples)")
     cat = gesture_catalog(cfg, sessions)
     if not gestures:
         present = {r["label"] for s in sessions for r in s.labels} - {"none"}

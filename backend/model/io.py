@@ -44,7 +44,7 @@ def list_models(cfg) -> list[dict]:
                 m = json.loads((p / "model.json").read_text(encoding="utf-8"))
             except Exception:  # noqa: BLE001
                 continue
-            by = {k: {x: v.get(x) for x in ("precision", "recall", "fp_per_min", "latency_ms")}
+            by = {k: {x: v.get(x) for x in ("precision", "recall", "fp_per_min", "latency_ms", "per_gesture")}
                   for k, v in m.get("by_sensors", {}).items()}
             out.append({"name": m.get("name", p.name), "classes": m.get("classes", []),
                         "created": m.get("created"), "val_metrics": m.get("val_metrics", {}),

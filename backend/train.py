@@ -118,8 +118,9 @@ def train(paths, gestures, name, cfg, warm_start=None, progress=None, sensors=No
     Mtr = np.concatenate([d.M[d.split == 0] for d in data])
     norm = Normalizer().fit(Xtr, Mtr)
     model = build_model(len(classes), cfg["model"])
-    if warm_start:
-        _warm_start(model, warm_start, cfg)
+    if warm_start and _warm_start(model, warm_start, cfg):
+        cfg["train"]["steps"] = int(cfg["train"].get("warm_steps", cfg["train"]["steps"]))
+        log.info("warm start from %s: training %d steps", warm_start, cfg["train"]["steps"])
     log.info("model: %d params, receptive field %d frames", n_params(model), model.receptive_field)
     w = class_weights(data, len(classes), cfg["train"]["class_weight_pow"])
     sampler = WindowSampler(data, cfg, rng)
@@ -210,11 +211,12 @@ def _warm_start(model, name, cfg):
         old, _, _ = load_model(name, cfg)
     except Exception as e:  # noqa: BLE001
         log.warning("warm start from %s failed: %s", name, e)
-        return
+        return False
     sd, own = old.state_dict(), model.state_dict()
     keep = {k: v for k, v in sd.items() if k in own and own[k].shape == v.shape and not k.startswith("head")}
     model.load_state_dict(keep, strict=False)
     log.info("warm start: %d/%d tensors from %s", len(keep), len(own), name)
+    return len(keep) > len(own) // 2               # mostly reused -> worth the shorter schedule
 
 
 def _curve(path, hist):

@@ -322,3 +322,13 @@ Format:
   3. Sessions without EMG don't fail training.
   4. `per_gesture` in `list_models` and a `delete_model` command.
 - Need from you: (1) and (2) above.
+
+## 2026-11-07 · TO: BACKEND / BOTH HUMANS · First backend changes on Jerry's laptop (INTERFACE v0.5)
+- Holds: `labels.hold_to_cue_end` (default on). A hold is labelled from its onset to the cue end, or to an early release burst
+  (`hold_release_gap_s` 0.4). On Jerry's two `left_click` hold sessions the median held span went 0.52 s → 1.72 s and
+  0.40 s → 1.36 s, with no fallbacks.
+- Warm start: `train` accepts `"warm_start"`. When ≥ half the tensors are reused it trains `train.warm_steps` (150) instead of 400.
+  On Jerry's 6 sessions / 5 gestures it took 101 s in total (vs ~3.5 min), reusing 52/54 tensors; val recall 0.94, precision 0.89.
+- Sessions with no EMG samples are skipped with a warning (they used to fail the whole training).
+- `list_models` includes `by_sensors[*].per_gesture`. New `delete_model` command (refuses the loaded model).
+- Tests: all 34 pass. INTERFACE.md bumped to v0.5.

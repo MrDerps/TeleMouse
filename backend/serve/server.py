@@ -34,14 +34,15 @@ from backend.serve.engine import LiveEngine
 log = logging.getLogger("serve")
 
 
-def _train_worker(paths, gestures, name, cfg, q, sensors=None, sensor_weights=None, val_sessions=None):
+def _train_worker(paths, gestures, name, cfg, q, sensors=None, sensor_weights=None, val_sessions=None,
+                  warm_start=None):
     """Runs in a child process."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s train-worker: %(message)s")
     try:
         from pathlib import Path
 
         from backend.train import train
-        _, meta = train([Path(p) for p in paths], gestures, name, cfg,
+        _, meta = train([Path(p) for p in paths], gestures, name, cfg, warm_start=warm_start,
                         progress=lambda f, m: q.put(("progress", f, m)), sensors=sensors,
                         sensor_weights=sensor_weights, val_sessions=val_sessions)
         q.put(("done", name, meta["val_metrics"]))
@@ -184,6 +185,18 @@ class Server:
             return {"ok": True, "models": [{k: m.get(k) for k in ("name", "classes", "created", "val_metrics",
                                                                    "sensors", "by_sensors")}
                                            for m in list_models(self.cfg) if m.get("type") == "tcn"]}
+        if cmd == "delete_model":
+            name = req.get("name")
+            if not name or name == self.model_name:
+                return {"ok": False, "error": "can't delete the loaded model" if name else "name missing"}
+            from backend.common.config import repo_path
+            import shutil
+            root = repo_path(self.cfg["paths"]["models"])
+            p = root / str(name)
+            if p.parent != root or not p.is_dir():
+                return {"ok": False, "error": f"no model {name!r}"}
+            shutil.rmtree(p)
+            return {"ok": True}
         if cmd == "calibrate_rest":
             s = float(req.get("seconds", 3))
             if not 0.5 <= s <= 10:
@@ -221,14 +234,18 @@ class Server:
                 return {"ok": False, "error": "val_sessions must be a non-empty list of the training session ids"}
             if set(vs) >= known:
                 return {"ok": False, "error": "val_sessions must leave at least one session for training"}
+        ws = req.get("warm_start")
+        if ws is not None and ws not in {m.get("name") for m in list_models(self.cfg)}:
+            log.info("warm_start %r not found: training from scratch", ws)
+            ws = None
         self.train_q = mp.get_context("spawn").Queue()
         self.train_proc = mp.get_context("spawn").Process(
             target=_train_worker, args=([str(p) for p in paths], gestures, name, self.cfg, self.train_q, sensors,
-                                        sw, vs),
+                                        sw, vs, ws),
             daemon=True)
         self.train_proc.start()
         self.progress, self.error = 0.0, None
-        self.set_message(f"training {name} on {len(paths)} session(s)")
+        self.set_message(f"training {name} on {len(paths)} session(s)" + (f", warm start from {ws}" if ws else ""))
         return {"ok": True}
 
     @staticmethod
