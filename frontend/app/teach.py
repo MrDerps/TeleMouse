@@ -25,9 +25,9 @@ IMU_NOTES = "back of the right hand, palm down: +x fingertips, -y thumb, -z up"
 
 
 def trainable(sessions=None):
-    """-> (session ids, gesture ids): every recorded session containing a currently defined gesture, and the defined
-    gestures that have recordings. Deleted gestures drop out automatically."""
-    defined = [g["id"] for g in G.load()["gestures"]]
+    """-> (session ids, gesture ids): every recorded session containing a defined gesture that is switched ON, and
+    those gestures (with recordings). Deleted or switched-off gestures are left out; their recordings are kept."""
+    defined = [g["id"] for g in G.load()["gestures"] if g.get("enabled", True)]
     sess = sessions if sessions is not None else list_sessions()
     ids, have = [], set()
     for s in sess:
@@ -169,8 +169,12 @@ class TeachFlow(QtCore.QObject):
         dlg = TeachDialog(parent, existing, others)
         if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
+        self._was_existing = existing is not None
         if existing:
             g, gid = existing, existing["id"]
+            if not g.get("enabled", True):                  # adding examples switches it back on
+                g["enabled"] = True
+                G.save(d)
         else:
             gid = dlg.gid
             g = G.add(d, gid, dlg.name.text().strip(), dlg.kind_value(), dlg.action())
@@ -214,7 +218,8 @@ class TeachFlow(QtCore.QObject):
         self.app.sessions_changed()
         warn = [w for _, s in out for w in s["warnings"] if "clipped" not in w or "emg" in sensor_picker.current()]
         self.app.log("teach: saved " + ", ".join(p.name for p, _ in out))
-        self.app.retrain(reason="gesture recorded")
+        self.app.retrain(reason="gesture recorded",
+                         ctx={"examples" if self._was_existing else "added": self.gid})
         msg = ("Recording saved." + ("\n\n" + "\n".join("⚠ " + w for w in warn) if warn else "") +
                "\n\nRetraining on all your gestures now (about two minutes). The model is replaced and "
                "starts by itself when it's done; progress is on the Train page.")

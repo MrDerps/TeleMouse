@@ -45,6 +45,9 @@ class AxionApp(QtWidgets.QMainWindow):
         self.model_info = {}
         self.pending_model = None
         self.retrain_again = False             # a retrain was asked for while one was running: run once more after
+        self.retrain_ctx = {}                  # what triggered the training in flight ({"added": gid}, ...)
+        self._queued_ctx = {}
+        self._prev_model = None                # the model that was in use when this training started
         self.rates = {"emg": 0.0, "imu": 0.0, "hand": 0.0}
         self.probs_rate = 0.0
         self._rate_t, self._rate_c, self._probs_n, self._probs_last = time.perf_counter(), None, 0, None
@@ -236,7 +239,7 @@ class AxionApp(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(self, "Use model", f"Couldn't load {name}: {r.get('error')}")
         self.backend.control({"cmd": "load", "name": name}, loaded, timeout_s=10.0)
 
-    def retrain(self, reason=""):
+    def retrain(self, reason="", ctx=None):
         """Retrain on every recording of every defined gesture. Only one training runs at a time: a request that
         arrives during training is merged into ONE follow-up run. With no gestures left, the model is removed."""
         from .teach import trainable, train_everything
@@ -246,6 +249,7 @@ class AxionApp(QtWidgets.QMainWindow):
             return
         if self.pending_model or (self.backend.status or {}).get("state") == "training":
             self.retrain_again = True
+            self._queued_ctx = {**self._queued_ctx, **(ctx or {})}
             self.log(f"retrain queued ({reason}): it starts when the current training finishes")
             return
         if not trainable()[1]:                   # nothing left to recognise: drop the model
@@ -264,12 +268,58 @@ class AxionApp(QtWidgets.QMainWindow):
                     self.retrain_again = True
                 else:
                     self.log(f"train failed: {r.get('error')}")
+        self.retrain_ctx = dict(ctx or {})
+        self._prev_model = (self.backend.status or {}).get("model")
         ok, info = train_everything(self, on_reply=replied)
         self.log(info + (f"  ({reason})" if reason else ""))
         if not ok and reason == "manual":
             QtWidgets.QMessageBox.information(self, "Retrain", info)
 
     def _training_finished(self, name):
+        """Accuracy guard first: if the new model is clearly worse than the one in use, ask before switching."""
+        from .guard import compare, load_model
+        prev = self._prev_model if self._prev_model and self._prev_model != name else None
+        issues = compare(load_model(name), load_model(prev)) if prev else []
+        ctx = self.retrain_ctx
+        if issues:
+            added = ctx.get("added")
+            box = QtWidgets.QMessageBox(self)
+            box.setWindowTitle("The new model is worse")
+            what = (f"Adding '{data.gesture_label(added)}' made recognition worse:" if added else
+                    "The new model recognises worse than the one you're using:")
+            box.setText(what + "\n\n• " + "\n• ".join(issues))
+            box.setInformativeText("Keep the new model anyway, or go back to the previous one?" +
+                                   (f"\n\nGoing back switches '{data.gesture_label(added)}' off (its recording is kept; "
+                                    "Add examples on it later to try again)." if added else ""))
+            keep = box.addButton("Keep new model", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+            back = box.addButton("Go back", QtWidgets.QMessageBox.ButtonRole.RejectRole)
+            box.setDefaultButton(back)
+            box.exec()
+            if box.clickedButton() is not keep:
+                self._revert_to(prev, name, added)
+                return
+        self._accept_model(name)
+
+    def _revert_to(self, prev, new, added):
+        if added:
+            d = G.load()
+            g = G.get(d, added)
+            if g:
+                g["enabled"] = False
+                G.save(d)
+                self.gestures_changed()
+
+        def loaded(r):
+            data.delete_model(new)
+            self.start_inference(lambda _: self.refresh_models())
+            self.log(f"kept the previous model ({data.model_label(prev)})")
+            if self.retrain_again:
+                self.retrain_again = False
+                ctx, self._queued_ctx = self._queued_ctx, {}
+                self.retrain(reason="changes made during training", ctx=ctx)
+        self.backend.control({"cmd": "load", "name": prev}, loaded, timeout_s=10.0)
+
+    def _accept_model(self, name):
         """Switch to the new model, start it, and delete every older model (Axion keeps one model)."""
         def loaded(r):
             if not r.get("ok"):
@@ -285,7 +335,8 @@ class AxionApp(QtWidgets.QMainWindow):
             self.log("new model is running")
             if self.retrain_again:
                 self.retrain_again = False
-                self.retrain(reason="changes made during training")
+                ctx, self._queued_ctx = self._queued_ctx, {}
+                self.retrain(reason="changes made during training", ctx=ctx)
             else:
                 QtWidgets.QMessageBox.information(
                     self, "Model updated", "Your gestures are trained and being recognised now.\n\n"
@@ -431,7 +482,8 @@ class AxionApp(QtWidgets.QMainWindow):
                 self.pending_model = None
                 if self.retrain_again:
                     self.retrain_again = False
-                    self.retrain(reason="queued")
+                    ctx, self._queued_ctx = self._queued_ctx, {}
+                    self.retrain(reason="queued", ctx=ctx)
             elif done:
                 name, self.pending_model = self.pending_model, None
                 self._training_finished(name)

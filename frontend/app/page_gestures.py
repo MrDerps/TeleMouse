@@ -8,7 +8,7 @@ from ..actions import describe
 from . import data, sensor_picker
 from .action_editor import ActionEditor
 from .theme import C
-from .ui import FlowGrid, button, divider, label, tag
+from .ui import FlowGrid, Switch, button, divider, label, tag
 
 class ActionDialog(QtWidgets.QDialog):
     """Edit a gesture's type (instant / hold) and what it does."""
@@ -118,6 +118,9 @@ class GesturesPage(QtWidgets.QWidget):
         sess = data.list_sessions()
         counts = data.example_counts(sess)
         acc = self._accuracy()
+        from .guard import gesture_warnings, load_model
+        be = self.app.backend
+        self._warn = gesture_warnings(load_model((be.status or {}).get("model") if be.online else None))
         cards = [self._add_card()] + [self._card(g, counts.get(g["id"], 0), len(data.sessions_for(g["id"], sess)),
                                                   acc.get(g["id"])) for g in gl]
         self.grid.set_items(cards)
@@ -155,12 +158,20 @@ class GesturesPage(QtWidgets.QWidget):
         lay = QtWidgets.QVBoxLayout(f)
         lay.setContentsMargins(18, 16, 18, 14)
         lay.setSpacing(6)
+        on = g.get("enabled", True)
         top = QtWidgets.QHBoxLayout()
-        top.addWidget(label(g.get("name") or g["id"], 18, 600))
-        top.addStretch(1)
+        top.addWidget(label(g.get("name") or g["id"], 18, 600, None if on else C["disabled"]))
         top.addWidget(tag("hold" if g.get("kind") == "hold" else "instant",
                           C["imu"] if g.get("kind") == "hold" else C["text2"]))
+        top.addStretch(1)
+        sw = Switch(on)
+        sw.setToolTip("On: part of the model. Off: left out of the model (recordings are kept).")
+        sw.toggled.connect(lambda v, gid=g["id"]: self.set_enabled(gid, v))
+        top.addWidget(sw)
         lay.addLayout(top)
+        if not on:
+            lay.addWidget(label("Off: not in the model. Recordings are kept; switch on to use it again.",
+                                12, 400, C["label"], wrap=True))
         ar = QtWidgets.QHBoxLayout()
         ar.addWidget(label(describe(g.get("action")), 14, 400, C["text"]))
         ar.addStretch(1)
@@ -174,6 +185,9 @@ class GesturesPage(QtWidgets.QWidget):
         stats.addWidget(self._stat(_pct(rec), "recognised", col))
         stats.addStretch(1)
         lay.addLayout(stats)
+        if on:
+            for w in self._warn.get(g["id"], [])[:2]:
+                lay.addWidget(label("⚠ " + w, 12, 400, C["warn"], wrap=True))
         if n_ex < 15:
             lay.addWidget(label("Add more examples for better accuracy.", 12, 400, C["warn"]))
         lay.addStretch(1)
@@ -216,7 +230,18 @@ class GesturesPage(QtWidgets.QWidget):
             G.save(d)
             self.app.gestures_changed()
             if kind_changed:                       # the backend labels instant vs hold differently: retrain
-                self.app.retrain(reason=f"'{g.get('name') or gid}' is now {dlg.kind}")
+                self.app.retrain(reason=f"'{g.get('name') or gid}' is now {dlg.kind}", ctx={"kind": gid})
+
+    def set_enabled(self, gid, on):
+        d = G.load()
+        g = G.get(d, gid)
+        if not g or g.get("enabled", True) == bool(on):
+            return
+        g["enabled"] = bool(on)
+        G.save(d)
+        self.app.gestures_changed()
+        self.app.retrain(reason=f"'{g.get('name') or gid}' switched {'on' if on else 'off'}",
+                         ctx={"enabled" if on else "disabled": gid})
 
     def rename(self, gid):
         d = G.load()
@@ -252,7 +277,7 @@ class GesturesPage(QtWidgets.QWidget):
             data.delete_sessions([s["id"] for s in only])
         self.app.gestures_changed()
         self.app.sessions_changed()
-        self.app.retrain(reason=f"'{g.get('name') or gid}' removed")
+        self.app.retrain(reason=f"'{g.get('name') or gid}' removed", ctx={"removed": gid})
 
 
 def _pct(x):

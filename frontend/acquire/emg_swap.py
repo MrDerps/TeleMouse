@@ -101,7 +101,12 @@ def build_profiles(session_dirs) -> dict:
     """gesture -> {"m": median log-ratio, "s": spread, "n": reps, "asym": informative?}"""
     allr = {}
     for d in session_dirs:
-        for g, rs in session_ratios(Path(d)).items():
+        try:
+            ratios = session_ratios(Path(d))
+        except (OSError, ValueError, KeyError) as e:      # a missing or broken recording must not stop the check
+            print(f"[emg_swap] skipping {d}: {e}")
+            continue
+        for g, rs in ratios.items():
             allr.setdefault(g, []).extend(rs)
     prof = {}
     for g, rs in allr.items():

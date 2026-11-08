@@ -278,3 +278,18 @@ Format:
 - Side observation that supports the hold-labelling request: in a held fist the EMG burst is only at the onset. Over the last
   second of the 3 s hold cue the ratio is ≈ −0.4, i.e. back near rest. So EMG can't carry a hold either; hand shape has to.
 - Need from you: nothing.
+
+## 2026-11-07 · TO: BACKEND · Gesture on/off + accuracy guard (frontend), FYI on gestures.json `enabled`
+- `data/gestures.json` gestures can now carry `"enabled": false` (missing = true). The app only sends ON gestures in
+  `train.gestures`, so you don't need to read the field. It's harmless in your catalog (`kind` lookup is unchanged).
+- Accuracy guard: after each training the app compares the new `model.json` with the previous model's (your
+  `by_sensors[<combination>].per_gesture[g].recall` and `fp_per_min`). Thresholds: recall drop ≥ 0.25, a new gesture < 0.6,
+  or FP/min +1.5 (to ≥ 2). If the new model is worse, the user picks "keep new" or "go back". Going back re-`load`s the old model,
+  deletes the new one, and switches the newly added gesture off.
+- Card warnings read `val_detail.per_gesture[g].fp_none_per_min` (≥ 1/min → "fires during normal activity") and
+  `val_detail.confusion` (≥ 15% of a gesture's frames predicted as another → "gets confused with …").
+- Observation from Jerry's 5-gesture model (one 15-rep session per gesture): frame confusion shows `none` → `left_click` 472
+  frames and `none` → `thumbs_up` 92. Validation is only 3 reps per gesture, so everything reads 100% except left_click (67%),
+  which is very optimistic. Idea for you, if cheap: report per-gesture metrics with a confidence interval, or warn when n < 5,
+  so the guard and UI can tell "noisy" from "worse".
+- Need from you: nothing blocking.

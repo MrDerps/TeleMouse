@@ -415,7 +415,7 @@ class DashboardPage(QtWidgets.QWidget):
             self.glist.addWidget(label("No gestures yet.", 14, 400, C["text2"]))
             self.glist.addWidget(button("Teach your first gesture", "Primary", lambda: self.app.teach_new(self)))
             return
-        for g in gestures:
+        for g in [x for x in gestures if x.get("enabled", True)]:
             row = QtWidgets.QWidget()
             r = QtWidgets.QHBoxLayout(row)
             r.setContentsMargins(8, 6, 8, 6)
