@@ -124,6 +124,8 @@ class TeachDialog(QtWidgets.QDialog):
             return {"type": t, "dx": 0, "dy": self.dy.value(), "continuous": self.kind.currentText() == "hold"}
         if t == "mode_toggle":
             return {"type": t, "mode": "pointer"}
+        if t == "pointer_hold":
+            return {"type": t}
         return {"type": "none"}
 
     def plans(self, g):
@@ -139,6 +141,9 @@ class TeachDialog(QtWidgets.QDialog):
 
     def _ok(self):
         gid = self.gid.text().strip()
+        if self.atype.currentText() in ("drag", "pointer_hold") and self.kind.currentText() != "hold":
+            QtWidgets.QMessageBox.warning(self, "Teach", "That action needs a HOLD gesture (kind = hold).")
+            return
         if not G.ID_RE.match(gid) or gid == "none":
             QtWidgets.QMessageBox.warning(self, "Teach", "Gesture id must be snake_case (a-z, 0-9, _).")
             return

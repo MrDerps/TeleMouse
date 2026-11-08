@@ -33,6 +33,7 @@ class Executor:
         self.held = {}                 # gesture id -> ("drag", button) | ("scroll", stop_event)
         self.pointer_on = True         # a mode_toggle gesture turns the pointer off/on
         self.listener = None
+        self.pointer = None            # set by the app: Pointer, for "pointer_hold" gestures
 
     # ------------------------------------------------------------------ kill switch
     def start_hotkey(self, on_kill):
@@ -57,6 +58,9 @@ class Executor:
             try:
                 if kind == "drag":
                     self.mouse.release(x)
+                elif kind == "pointer":
+                    if self.pointer:
+                        self.pointer.set_clutch(False)
                 elif kind == "scroll":
                     x.set()
             except Exception as e:
@@ -110,6 +114,14 @@ class Executor:
             return f"drag: {a.get('button', 'left')} pressed"
         elif t == "key":
             self._combo(a.get("combo", ""))
+        elif t == "pointer_hold":
+            if kind != "start":
+                return "pointer_hold needs a hold gesture (ignored)"
+            if self.pointer:
+                self.pointer.set_clutch(True)
+            with self.lock:
+                self.held[gid] = ("pointer", None)
+            return "mouse follows the hand"
         elif t == "mode_toggle":
             self.pointer_on = not self.pointer_on
             return f"pointer {'ON' if self.pointer_on else 'OFF'}"
@@ -126,6 +138,10 @@ class Executor:
         if kind == "drag":
             self.mouse.release(x)
             return "drag released"
+        if kind == "pointer":
+            if self.pointer:
+                self.pointer.set_clutch(False)
+            return "mouse frozen"
         x.set()
         return "scroll stopped"
 

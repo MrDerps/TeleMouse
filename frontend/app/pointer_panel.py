@@ -8,15 +8,17 @@ from PyQt6 import QtCore, QtWidgets
 from ..acquire import config
 from ..actions.pointer import DEFAULTS
 
-MODES = [("Off", "off"), ("Auto: IMU + camera", "auto"), ("IMU only", "imu"), ("Camera only", "camera"),
+MODES = [("Right hand: PINCH to move, release to freeze (no training)", "right_pinch"),
+         ("Right hand: move while a gesture bound to 'move mouse while held' is held", "right_gesture"),
+         ("Off", "off"), ("Auto: IMU + camera", "auto"), ("IMU only", "imu"), ("Camera only", "camera"),
          ("Left hand (needs two-hand tracking, experimental)", "left")]
 
 
 def load_settings():
     s = dict(DEFAULTS)
     saved = config.load().get("pointer") or {}
-    if saved.get("version", 1) < 3:          # v3: pointer off by default while the mouse is reworked
-        saved["mode"] = "off"
+    if saved.get("version", 1) < 4:          # v4: right-hand pinch pointer is the default
+        saved["mode"] = "right_pinch"
     s.update(saved)
     return s
 
@@ -76,7 +78,7 @@ class PointerPanel(QtWidgets.QGroupBox):
         self.changed()
 
     def settings(self):
-        return {"version": 3, "mode": self.mode.currentData(), "speed": float(self.speed.value()),
+        return {"version": 4, "mode": self.mode.currentData(), "speed": float(self.speed.value()),
                 "smoothing": self.smooth.value() / 100, "accel": self.accel.isChecked(),
                 "need_hand": self.need_hand.isChecked(), "freeze_on_clench": self.freeze.isChecked(),
                 "invert_x": self.inv_x.isChecked(), "invert_y": self.inv_y.isChecked(), **self._axes}

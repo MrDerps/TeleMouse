@@ -1,6 +1,11 @@
 """Pointer control (not the NN's job): moves the OS cursor from the IMU and the camera.
 
 Modes
+  * "right_pinch" (default): the RIGHT hand (the only hand tracked) steers by the centre of its palm, but only
+    while you PINCH (thumb tip on index tip). Release the pinch and the cursor freezes. Detected directly
+    from the landmarks, so no training is needed and it reacts within a frame.
+  * "right_gesture": same, but the clutch is any trained HOLD gesture whose action is "pointer_hold"
+    (Move mouse while held): cursor follows the hand from the gesture's start event until its end event.
   * "left" (needs two-hand tracking, `two_hands` in data/frontend_config.json; off for now): your OTHER hand (no IMU) steers. The camera tracks the centre of its palm; an OPEN hand
     moves the cursor, a FIST freezes it (close the fist, reposition, open again = lifting a mouse). No pointer
     hand in view = no movement. The acquisition service decides which visible hand is which and publishes the
@@ -32,13 +37,21 @@ TOPIC_POINTER_HAND = b"pointer_hand"
 OPEN_ABOVE, CLOSED_BELOW = 1.55, 1.25      # openness = mean(tip-wrist) / palm length, with hysteresis
 
 
+PINCH_ON, PINCH_OFF = 0.30, 0.45          # thumb-index distance / palm length, with hysteresis
+
+
+def pinch_ratio(lm) -> float:
+    palm_len = np.linalg.norm(lm[9, :2] - lm[0, :2]) + 1e-6
+    return float(np.linalg.norm(lm[4, :2] - lm[8, :2]) / palm_len)
+
+
 def openness(lm) -> float:
     """~1.9 for an open hand, ~1.0 for a fist (scale- and distance-invariant)."""
     palm_len = np.linalg.norm(lm[9, :2] - lm[0, :2]) + 1e-6
     return float(np.mean(np.linalg.norm(lm[TIPS, :2] - lm[0, :2], axis=1)) / palm_len)
 
 DEFAULTS = {
-    "mode": "off", "speed": 12.0, "accel": True, "smoothing": 0.5, "invert_x": False, "invert_y": False,
+    "mode": "right_pinch", "speed": 12.0, "accel": True, "smoothing": 0.5, "invert_x": False, "invert_y": False,
     "need_hand": True, "freeze_on_clench": True,
     # gyro axis mapping: cursor x <- sign * gyro[axis_x], cursor y <- sign * gyro[axis_y]
     # default for the documented mount (+x fingertips, -y thumb, -z up), palm down: turn right = yaw, tilt down = pitch
@@ -123,6 +136,12 @@ class Pointer:
         self.acc = np.zeros(2)                       # sub-pixel remainder
         self.source = "-"
         self.left_open = False
+        self.clutch_gesture = False                 # set by the executor while a "pointer_hold" gesture is held
+        self.pinched = False
+        self._pinch_n = 0
+        self.r_prev = None
+        self.f_right = OneEuro()
+        self.pinch = 0.0
         self.left_prev = None
         self.f_left = OneEuro()
         self.openness = 0.0
@@ -282,7 +301,61 @@ class Pointer:
             v[1] = -v[1]
         self._move(v / 30)
 
+    def _right(self, a, h, now):
+        """Right hand (the `hand` topic): the palm centre moves the cursor while the clutch is engaged."""
+        mode = self.s["mode"]
+        if len(a) == 0:
+            self.r_prev = None
+            self.f_right.reset()
+            self.pinched, self._pinch_n = False, 0
+            self.source = "no hand in view"
+            return
+        if mode == "right_pinch":
+            r = pinch_ratio(a)
+            self.pinch = r
+            want = r < PINCH_ON if not self.pinched else r < PINCH_OFF
+            self._pinch_n = self._pinch_n + 1 if want != self.pinched else 0
+            if self._pinch_n >= 2:                      # 2 frames in a row: debounce
+                self.pinched, self._pinch_n = want, 0
+                self.r_prev = None
+                self.f_right.reset()
+            engaged, why = self.pinched, f"pinch {r:.2f}"
+        else:
+            engaged, why = self.clutch_gesture, "gesture held" if self.clutch_gesture else "gesture not held"
+        palm = a[PALM, :2].mean(axis=0) * np.array([h.get("img_w") or 640, h.get("img_h") or 480])
+        prev, self.r_prev = self.r_prev, palm
+        if not engaged:
+            self.source = f"frozen ({why})"
+            self.r_prev = None
+            return
+        if not self.enabled_fn():
+            self.source = "actions off"
+            return
+        self.source = f"moving ({why})"
+        if prev is None:
+            return
+        d = palm - prev
+        d[0] = -d[0]                                    # webcam faces you: your right is image left
+        self.f_right.min_cutoff = 0.5 + 4.5 * (1 - self.s["smoothing"])
+        d = self.f_right(d, 1 / 30)
+        if np.linalg.norm(d) < 0.4:
+            return
+        v = self._gain(d * 30 * self.s["speed"] / 2.5)
+        if self.s["invert_x"]:
+            v[0] = -v[0]
+        if self.s["invert_y"]:
+            v[1] = -v[1]
+        self._move(v / 30)
+
+    def set_clutch(self, on: bool):
+        self.clutch_gesture = bool(on)
+        if not on:
+            self.r_prev = None
+
     def _hand(self, a, h, now):
+        if self.s["mode"] in ("right_pinch", "right_gesture"):
+            self._right(a, h, now)
+            return
         if len(a) == 0:
             self.last_palm = None
             return

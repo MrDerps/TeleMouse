@@ -52,8 +52,8 @@ class ActionDialog(QtWidgets.QDialog):
             lbl = self.layout().labelForField(w)
             if lbl:
                 lbl.setVisible(k in show)
-        self.hint.setText("Drag: press on gesture start, release on end; use it with a HOLD gesture."
-                          if t == "drag" and self.kind != "hold" else "")
+        self.hint.setText("Drag / move mouse: active from gesture start to end; use it with a HOLD gesture."
+                          if t in ("drag", "pointer_hold") and self.kind != "hold" else "")
 
     def action(self):
         t = self.type.currentText()
@@ -65,6 +65,8 @@ class ActionDialog(QtWidgets.QDialog):
             return {"type": t, "combo": self.combo.text().strip().lower()}
         if t == "mode_toggle":
             return {"type": t, "mode": self.mode.currentText()}
+        if t == "pointer_hold":
+            return {"type": t}
         return {"type": "none"}
 
 

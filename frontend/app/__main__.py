@@ -61,6 +61,7 @@ class App(QtWidgets.QMainWindow):
         self.pointer = Pointer(lambda: self.actions_enabled and not self.killed and self.executor.pointer_on,
                                load_settings(), log=self.log)
         self.pointer.start()
+        self.executor.pointer = self.pointer
 
         self.pending_model = None             # set by "train on everything": announce when it's loaded
         self.model_info = {}                  # model name -> list_models entry (accuracy per sensor combination)
