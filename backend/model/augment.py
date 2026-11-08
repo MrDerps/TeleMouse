@@ -18,6 +18,27 @@ def _rot(rng, max_deg):
     return np.eye(3) + np.sin(a) * K + (1 - np.cos(a)) * K @ K
 
 
+def resolve_weights(sensor_weights, cfg) -> dict[str, float]:
+    """Config defaults overridden by a (partial) {"emg": 0.2, ...} dict; values clipped to [0, 1]."""
+    w = dict(cfg["train"].get("sensor_weights") or {})
+    for k, v in (sensor_weights or {}).items():
+        if k not in ("emg", "imu", "hand"):
+            raise ValueError(f"sensor_weights: unknown sensor {k!r}")
+        w[k] = float(v)
+    return {k: float(np.clip(w.get(k, 1.0), 0.0, 1.0)) for k in ("emg", "imu", "hand")}
+
+
+def drop_probs(acfg) -> np.ndarray:
+    """Per-modality dropout probability: base at weight 1, rising linearly to max_drop at weight 0."""
+    w = acfg.get("weights") or {}
+    mx = acfg.get("max_drop", 0.75)
+    out = []
+    for k in ("emg", "imu", "hand"):
+        base = acfg[f"drop_{k}"]
+        out.append(base + (1.0 - w.get(k, 1.0)) * max(mx - base, 0.0))
+    return np.array(out)
+
+
 def augment(X, M, y, L, rng, acfg, log_clip):
     """X (Ls,D) raw, M (Ls,3), y (Ls,) with Ls ~ L*(1+-warp) -> resampled to length L and perturbed."""
     X = X.astype(np.float32, copy=True)
@@ -47,9 +68,15 @@ def augment(X, M, y, L, rng, acfg, log_clip):
     th = np.deg2rad(rng.uniform(-acfg["rot_deg"], acfg["rot_deg"]))
     R2 = np.array([[np.cos(th), -np.sin(th)], [np.sin(th), np.cos(th)]], np.float32)
     X[:, _H + 62:_H + 64] = X[:, _H + 62:_H + 64] @ R2.T  # wrist velocity in image plane
+    # camera framing / distance differ between sessions: shift wrist position, scale palm size and wrist speed
+    if acfg.get("hand_shift", 0):
+        X[:, _H + 60:_H + 62] += rng.uniform(-acfg["hand_shift"], acfg["hand_shift"], 2).astype(np.float32)
+    if acfg.get("hand_scale"):
+        s = np.float32(np.exp(rng.uniform(*np.log(acfg["hand_scale"]))))
+        X[:, _H + 62:_H + 65] *= s
     # modality dropout among the modalities present in this window (always keep at least one)
     present = np.flatnonzero(M.any(0))
-    p = np.array([acfg["drop_emg"], acfg["drop_imu"], acfg["drop_hand"]])
+    p = drop_probs(acfg)
     drop = [k for k in present if rng.random() < p[k]]
     if len(present) and len(drop) == len(present):
         drop.remove(drop[rng.integers(len(drop))])

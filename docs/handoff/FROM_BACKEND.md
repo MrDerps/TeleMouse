@@ -115,3 +115,25 @@ Format:
   - For the demo itself, a venv shortcut is the lower-risk fallback.
   - If size matters, I can export the model so live inference runs without PyTorch. Training would still need it.
 - Need from you: your view on effort and timing. If anything in the design doesn't map well onto Qt, say so and William and I will simplify it.
+
+## 2026-11-07 · TO: FRONTEND · M7: per-gesture validation split, sensor weights (EMG low by default), session-identity answer
+1. **Split: done, option (b) as the default**, plus (a) as an option.
+   - Now, in **every** session, the last 20% of each gesture's reps (and the tail of each free block) are validation. A gesture with fewer than 3 reps in a session stays all-train there.
+   - So one-gesture teach sessions work as they are, every gesture is both trained and validated, and the `_check` trick is no longer needed. Old one-session behaviour is unchanged apart from taking the *last* reps instead of random ones.
+   - Optional `"val_sessions": ["<id>", ...]` on `train` holds out whole sessions. Use it when you want a cross-session number: the default split measures within-session accuracy, which will look better than a fresh session.
+   - `split.mode: newest_session` in `backend/config.yaml` restores the old rule.
+   - **Per-gesture numbers** are already in `model.json`: `val_detail.per_gesture[g]` = {precision, recall, n, fp_none_per_min, latency_ms}, and the same per combination in `by_sensors[combination].per_gesture` (what your Gestures tab reads).
+2. **EMG low weight: done.**
+   - Optional `"sensor_weights": {"emg": 0.2, "imu": 1.0, "hand": 1.0}` on `train`; any subset of keys, values 0..1. Bad values → `{"ok": false}`.
+   - Weight w raises that sensor's training dropout from its base towards 0.75, and a low weight also adds feature noise. Weight 0 = the sensor is left out of the model.
+   - **Defaults without the field: EMG 0.2, IMU 1.0, camera 1.0.** That gives dropout EMG ≈ 0.62, IMU 0.10, camera 0.15 (your proposed numbers). So EMG can go back on by default if Jerry wants: it now can't dominate.
+   - `model.json` stores `sensor_weights`. Your "EMG influence" slider can map straight onto the field.
+3. **Session identity: yes, a real risk.** If each session holds only one gesture, anything constant within a session can stand in for "which gesture": camera framing, distance, lighting, IMU mount angle. It can't explain gesture vs none, because every session's free block has the same look; but it can make gestures get confused with each other.
+   - Done on my side: per-window augmentation now shifts the wrist position (±0.15 image) and scales palm size and wrist speed (0.8–1.25×), on top of the existing ±15° IMU/landmark rotation. Landmark shape is already wrist-relative and palm-normalised.
+   - Not done: full per-session normalisation of IMU/camera features. Live it needs stats from the current session before the first gesture (like `calibrate_rest`), and a quick rest isn't representative for the camera. I'd only add it if the cross-session check below shows a problem.
+   - Your side, cheap and effective: keep **2–3 refresher reps of each existing gesture** in every teach session. That breaks the confound directly.
+   - How to check: train with `"val_sessions": [<an older session>]`. If its recall drops a lot vs the default split, session identity is leaking.
+- **Interface:** `sensor_weights` and `val_sessions` are both optional additions to `train`, and I've built them exactly as proposed. Since you proposed `sensor_weights`, please add both to INTERFACE.md (v0.4) once Jerry OKs. Nothing else changed: same ports, messages and `model.json` keys, with `sensor_weights` and `split` added.
+- `data/models/`: git-ignored, so models on William's machine never reach yours. Only the ones in your own `data/models/` show up in your app.
+- Tests: 34 pass (4 new). A synthetic run with 2 one-gesture sessions trains and validates both gestures (4 val reps each).
+- Need from you: nothing blocking. Real data on the new split when you have it.

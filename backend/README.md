@@ -31,7 +31,7 @@ All hyperparameters are in `backend/config.yaml`, and all paths are relative to 
   - Hand: wrist-relative landmarks / palm size, wrist position and velocity, palm size. Held ≤ 100 ms, otherwise zeroed and masked.
   - Each frame also carries a presence mask per modality.
 - `data/labels.py`: finds the motion inside each cue window from an activity score (robust z of EMG envelope, |gyro| and hand motion). Ignores ~100 ms edges, and falls back to the window centre (logged) if nothing is found.
-- `data/dataset.py`: builds the tensors, plus the train/val split. With ≥2 sessions the newest one is val; otherwise a stratified 20% of trials plus the tail of the free-activity block.
+- `data/dataset.py`: builds the tensors, plus the train/val split. Default (M7): in **every** session, the last 20% of each gesture's reps and the tail of each free-activity block are validation, so sessions may hold different gestures. `val_sessions=[ids]` holds out whole sessions instead (`split.mode: newest_session` restores the old rule).
 - `eval/events.py`: probabilities → events. EMA, hysteresis with k_on, refractory period; instant fires at the peak, hold sends start/end. **The live server uses the same code.**
 - `eval/metrics.py`: event precision/recall, false positives per minute on free activity, median latency, frame confusion, and per-gesture threshold tuning (keeps FP ≤ target/min).
 - `baseline.py`: causal 400 ms window stats (mean, std, last−first) → shrinkage LDA. A sanity floor for the TCN.
@@ -63,6 +63,15 @@ Any subset of `emg`, `imu`, `hand` can be used:
 - **Live:** `{"cmd":"start","sensors":["imu","emg"]}` runs a model with fewer sensors than it was trained with. Modality dropout makes this work.
 - **Accuracy per combination:** after training, each model is evaluated with every combination of its sensors, with thresholds re-tuned per combination. Results go to the console table, `sensors.png` and `model.json` → `by_sensors`, and `list_models` returns them. The live server uses the matching thresholds and reports that accuracy in `start` replies and in `status.accuracy`.
 - **Automatic masking:** EMG is masked automatically per frame when a channel sits at an ADC rail (electrode off), and for a whole session when `meta.emg_valid` is false.
+
+## Sensor weights and validation (M7)
+- **Sensor weights:** `train` accepts `"sensor_weights": {"emg": 0.2, "imu": 1.0, "hand": 1.0}` (CLI `--sensor-weights emg=0.2`). Default from `train.sensor_weights` in the config: **EMG 0.2**, since it doesn't transfer between sessions.
+  - Weight w sets that sensor's training dropout: `base + (1-w) × (max_drop - base)`. EMG 0.2 gives about 0.62, IMU 0.10, camera 0.15.
+  - A low weight also adds feature noise, so the model can't lean on that sensor. Weight 0 = sensor left out.
+  - `model.json` stores `sensor_weights`.
+- **Validation:** `"val_sessions": [ids]` on `train` (CLI `--val-sessions`) holds out whole sessions. It's the honest cross-session test; the default stratified split measures within-session accuracy.
+- **Per-gesture numbers:** `val_detail.per_gesture` and `by_sensors[combination].per_gesture` in `model.json`.
+- **Session-identity guard:** each training window gets a random wrist-position shift (±0.15 of the image) and palm-size/speed scale (0.8–1.25×), on top of the ±15° rotation. Absolute camera framing and distance then can't identify a session.
 
 ## Real-data lessons (M6)
 - **Users anticipate the cue,** so the motion is searched for from 0.5 s before the cue (`labels.pre_cue_s`).

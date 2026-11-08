@@ -34,7 +34,7 @@ from backend.serve.engine import LiveEngine
 log = logging.getLogger("serve")
 
 
-def _train_worker(paths, gestures, name, cfg, q, sensors=None):
+def _train_worker(paths, gestures, name, cfg, q, sensors=None, sensor_weights=None, val_sessions=None):
     """Runs in a child process."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s train-worker: %(message)s")
     try:
@@ -42,7 +42,8 @@ def _train_worker(paths, gestures, name, cfg, q, sensors=None):
 
         from backend.train import train
         _, meta = train([Path(p) for p in paths], gestures, name, cfg,
-                        progress=lambda f, m: q.put(("progress", f, m)), sensors=sensors)
+                        progress=lambda f, m: q.put(("progress", f, m)), sensors=sensors,
+                        sensor_weights=sensor_weights, val_sessions=val_sessions)
         q.put(("done", name, meta["val_metrics"]))
     except BaseException as e:  # noqa: BLE001
         q.put(("error", f"{type(e).__name__}: {e}", traceback.format_exc()))
@@ -207,9 +208,23 @@ class Server:
         sensors = self._sensors_arg(req)
         if isinstance(sensors, dict):
             return sensors
+        sw = req.get("sensor_weights")
+        if sw is not None:
+            ok = isinstance(sw, dict) and all(k in MODALITIES and isinstance(v, (int, float)) and 0 <= v <= 1
+                                              for k, v in sw.items())
+            if not ok:
+                return {"ok": False, "error": f"sensor_weights must map {list(MODALITIES)} to numbers in 0..1"}
+        vs = req.get("val_sessions")
+        if vs is not None:
+            known = {p.name for p in paths}
+            if not isinstance(vs, list) or not vs or any(v not in known for v in vs):
+                return {"ok": False, "error": "val_sessions must be a non-empty list of the training session ids"}
+            if set(vs) >= known:
+                return {"ok": False, "error": "val_sessions must leave at least one session for training"}
         self.train_q = mp.get_context("spawn").Queue()
         self.train_proc = mp.get_context("spawn").Process(
-            target=_train_worker, args=([str(p) for p in paths], gestures, name, self.cfg, self.train_q, sensors),
+            target=_train_worker, args=([str(p) for p in paths], gestures, name, self.cfg, self.train_q, sensors,
+                                        sw, vs),
             daemon=True)
         self.train_proc.start()
         self.progress, self.error = 0.0, None

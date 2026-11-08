@@ -54,7 +54,8 @@ def build_session(sess: Session, classes: list[str], kinds: dict[str, str], cfg:
     return SessionData(sess.id, T, X, M, y, trials, blocks, rest_std, score)
 
 
-def load_dataset(paths, gestures: list[str] | None, cfg: dict, sensors=MODALITIES):
+def load_dataset(paths, gestures: list[str] | None, cfg: dict, sensors=MODALITIES, val_sessions=None):
+    """val_sessions: optional session ids held out whole as validation (default: per-gesture stratified split)."""
     sessions = [load_session(p) for p in paths]
     cat = gesture_catalog(cfg, sessions)
     if not gestures:
@@ -66,30 +67,52 @@ def load_dataset(paths, gestures: list[str] | None, cfg: dict, sensors=MODALITIE
     classes = ["none"] + list(gestures)
     kinds = {g: cat.get(g, {}).get("kind", "instant") for g in gestures}
     data = [build_session(s, classes, kinds, cfg, sensors) for s in sessions]
-    assign_split(data, cfg)
+    assign_split(data, cfg, val_sessions=val_sessions)
     return data, classes, kinds
 
 
-def assign_split(data: list[SessionData], cfg: dict, seed: int | None = None):
-    """>=2 sessions: newest session is validation. 1 session: stratified val_frac of trials (their
-    surrounding segment) + the last val_frac of each free-activity block."""
-    rng = np.random.default_rng(cfg["seed"] if seed is None else seed)
-    if len(data) >= 2:
-        order = sorted(range(len(data)), key=lambda i: data[i].id)
-        for i in order:
-            data[i].split = np.zeros(len(data[i].T), np.int64)
-        data[order[-1]].split[:] = 1
+def assign_split(data: list[SessionData], cfg: dict, seed: int | None = None, val_sessions=None):
+    """Train/val split, frame-wise (0 train, 1 val, -1 unused guard band).
+
+    Default ("stratified", works when sessions hold different gestures): in EVERY session, the last
+    val_frac of each gesture's cue windows (with their surrounding relax segment) plus the last val_frac of
+    each free-activity block are validation. A gesture with fewer than split.min_trials_for_val trials in
+    a session keeps them all for training there.
+    val_sessions=[ids] (or split.mode "newest_session"): those sessions (or the newest) are validation, whole.
+    """
+    sc = cfg["split"]
+    ids = {d.id for d in data}
+    if val_sessions:
+        unknown = [v for v in val_sessions if v not in ids]
+        if unknown:
+            raise ValueError(f"val_sessions not among the training sessions: {unknown}")
+        if set(val_sessions) >= ids:
+            raise ValueError("val_sessions must leave at least one session for training")
+        for d in data:
+            d.split = np.full(len(d.T), 1 if d.id in val_sessions else 0, np.int64)
         return
-    d = data[0]
+    if sc.get("mode", "stratified") == "newest_session" and len(data) >= 2:
+        newest = max(d.id for d in data)
+        for d in data:
+            d.split = np.full(len(d.T), 1 if d.id == newest else 0, np.int64)
+        return
+    for d in data:
+        _stratified(d, cfg)
+
+
+def _stratified(d: SessionData, cfg: dict):
+    sc = cfg["split"]
+    frac = sc["val_frac"]
     split = np.zeros(len(d.T), np.int64)
-    frac = cfg["split"]["val_frac"]
-    cues = sorted({(t["cue"], t["label"]) for t in d.trials})  # unique cue windows
+    cues = sorted({(t["cue"], t["label"]) for t in d.trials})  # unique cue windows, in time order
     by_label: dict[str, list[int]] = {}
     for j, (_, lab) in enumerate(cues):
         by_label.setdefault(lab, []).append(j)
     for lab, js in by_label.items():
+        if len(js) < sc.get("min_trials_for_val", 3):
+            continue
         n_val = max(1, int(round(frac * len(js))))
-        for j in rng.choice(js, n_val, replace=False):
+        for j in js[-n_val:]:  # the LAST reps: also tests drift over the session (fatigue, pad shift)
             (a, b), _ = cues[j]
             lo = 0.5 * (cues[j - 1][0][1] + a) if j > 0 else a - 1.0
             hi = 0.5 * (b + cues[j + 1][0][0]) if j + 1 < len(cues) else b + 1.0

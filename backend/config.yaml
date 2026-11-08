@@ -65,7 +65,12 @@ labels:
   pre_cue_s: 0.5                 # also search for the motion this long before the cue starts (anticipation)
 
 split:
-  val_frac: 0.2                  # used when there is only one session
+  mode: stratified               # stratified: last val_frac of each gesture's reps (and of each free block) in EVERY
+                                 #   session is validation, so sessions may hold different gestures (teach flow).
+                                 # newest_session: the newest session is validation, whole (the old behaviour).
+                                 # `train` may also pass val_sessions=[ids] to hold out whole sessions explicitly.
+  val_frac: 0.2
+  min_trials_for_val: 3          # a gesture with fewer reps than this in a session stays all-train there
 
 baseline:
   win_frames: 20                 # 400 ms windows
@@ -97,10 +102,19 @@ train:
     emg_scale: [0.7, 1.3]
     noise: 0.05
     rot_deg: 15
+    # Modality dropout at sensor weight 1.0. A weight w < 1 raises that sensor's dropout towards max_drop and adds
+    # feature noise (weight_noise x (1-w)), so the model can't lean on it: drop = base + (1-w) x (max_drop - base).
     drop_emg: 0.10
-    drop_imu: 0.15
-    drop_hand: 0.30
+    drop_imu: 0.10
+    drop_hand: 0.15
+    max_drop: 0.75
+    weight_noise: 0.5            # extra N(0, s) on standardised features of a sensor at weight 0
     hand_gap_p: 0.3              # chance of a random hand-lost segment inside a window
+    hand_shift: 0.15             # wrist image position offset per window (camera framing differs per session)
+    hand_scale: [0.8, 1.25]      # palm size / wrist speed scale per window (distance to the camera)
+  # Default influence per sensor, 0..1 (M6, Jerry's ask: EMG doesn't transfer between sessions, so keep it low).
+  # `train` may override with "sensor_weights": {"emg": 0.2, ...}. 0 = same as leaving the sensor out.
+  sensor_weights: {emg: 0.2, imu: 1.0, hand: 1.0}
   live_window_frames: 96         # live: re-run the model on the last ~1.9 s (> receptive field)
 
 events:

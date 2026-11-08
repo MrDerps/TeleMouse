@@ -29,7 +29,7 @@ from backend.eval.evaluate import evaluate_model, summary  # noqa: E402
 from backend.eval.report import save_report  # noqa: E402
 from backend.eval.sensors import evaluate_by_sensors, format_table, save_sensor_plot  # noqa: E402
 from backend.data.features import MODALITIES  # noqa: E402
-from backend.model.augment import WindowSampler, augment  # noqa: E402
+from backend.model.augment import WindowSampler, augment, drop_probs, resolve_weights  # noqa: E402
 from backend.model.io import model_dir, predict_full, save_model  # noqa: E402
 from backend.model.tcn import build_model, n_params  # noqa: E402
 
@@ -55,6 +55,9 @@ def _batch(sampler, data, norm, cfg, rng):
         Z = norm(X, M)
         Z += rng.normal(0, t["aug"]["noise"], Z.shape).astype(np.float32)
         for k, sl in enumerate(norm_slices()):
+            extra = t["aug"].get("weight_noise", 0.0) * (1.0 - t["aug"].get("weights", {}).get(MODALITIES[k], 1.0))
+            if extra > 0:
+                Z[:, sl] += rng.normal(0, extra, Z[:, sl].shape).astype(np.float32)
             Z[~M[:, k], sl] = 0.0
         y = y.copy()
         y[: t["warmup_frames"]] = -1
@@ -87,20 +90,29 @@ def val_loss(model, norm, data, w):
     return tot / max(n, 1)
 
 
-def train(paths, gestures, name, cfg, warm_start=None, progress=None, sensors=None):
+def train(paths, gestures, name, cfg, warm_start=None, progress=None, sensors=None, sensor_weights=None,
+          val_sessions=None):
     """Returns (out_dir, meta). progress(frac, message) is called during training (for the live server).
-    sensors: subset of ("emg", "imu", "hand") to train with (default all); the others are masked out."""
+    sensors: subset of ("emg", "imu", "hand") to train with (default all); the others are masked out.
+    sensor_weights: {"emg": 0.2, ...} influence 0..1 (default config train.sensor_weights); weight 0 = left out.
+    val_sessions: session ids held out whole as validation (default: per-gesture stratified split)."""
+    import copy
     progress = progress or (lambda f, m: None)
-    sensors = [m for m in MODALITIES if m in (sensors or MODALITIES)]
+    cfg = copy.deepcopy(cfg)
+    weights = resolve_weights(sensor_weights, cfg)
+    sensors = [m for m in MODALITIES if m in (sensors or MODALITIES) and weights[m] > 0]
     if not sensors:
-        raise ValueError("sensors must include at least one of emg, imu, hand")
+        raise ValueError("sensors must include at least one of emg, imu, hand with weight > 0")
+    cfg["train"]["aug"]["weights"] = weights
+    log.info("sensors %s, weights %s -> dropout %s", sensors, weights,
+             dict(zip(MODALITIES, np.round(drop_probs(cfg["train"]["aug"]), 2).tolist())))
     t0 = time.perf_counter()
     seed = cfg["seed"]
     rng = np.random.default_rng(seed)
     torch.manual_seed(seed)
     torch.set_num_threads(cfg["train"]["threads"])
     progress(0.0, "building features")
-    data, classes, kinds = load_dataset(paths, gestures, cfg, sensors)
+    data, classes, kinds = load_dataset(paths, gestures, cfg, sensors, val_sessions=val_sessions)
     log.info("classes %s, %d session(s), features in %.1fs", classes, len(data), time.perf_counter() - t0)
     Xtr = np.concatenate([d.X[d.split == 0] for d in data])
     Mtr = np.concatenate([d.M[d.split == 0] for d in data])
@@ -169,7 +181,8 @@ def train(paths, gestures, name, cfg, warm_start=None, progress=None, sensors=No
                 k: cfg[k] for k in ("frame", "emg", "imu", "hand")},
             "train": {"steps": tc["steps"], "best_step": best[2], "seconds": round(t_train, 1), "history": hist},
             "val_metrics": summary(metrics), "val_detail": metrics,
-            "sensors": sensors, "by_sensors": by}
+            "sensors": sensors, "sensor_weights": {m: weights[m] for m in sensors}, "by_sensors": by,
+            "split": {"val_sessions": val_sessions} if val_sessions else {"mode": cfg["split"]["mode"]}}
     save_model(out, model, meta)
     save_report(out / "report.png", f"TCN {name}  ({len(paths)} session(s), {n_params(model)} params)",
                 classes, cm, metrics, T, P, y, events, thr, t_from=(tr[0]["cue"][0] - 5) if tr else None)
@@ -228,14 +241,21 @@ def main(argv=None):
     ap.add_argument("--steps", type=int, default=None)
     ap.add_argument("--sensors", nargs="+", choices=list(MODALITIES), default=None,
                     help="train with only these sensors (default: all three)")
+    ap.add_argument("--sensor-weights", nargs="+", default=None, metavar="SENSOR=W",
+                    help="influence per sensor 0..1, e.g. emg=0.2 (default from config train.sensor_weights)")
+    ap.add_argument("--val-sessions", nargs="+", default=None, help="hold out these whole sessions as validation")
     a = ap.parse_args(argv)
+    sw = None
+    if a.sensor_weights:
+        sw = {k: float(v) for k, v in (x.split("=", 1) for x in a.sensor_weights)}
     if a.steps:
         cfg["train"]["steps"] = a.steps
     root = repo_path(cfg["paths"]["synth"] if a.synth else cfg["paths"]["sessions"])
     paths = resolve_sessions("all" if a.sessions == ["all"] else a.sessions, [root])
     if not paths:
         raise SystemExit(f"no sessions in {root} (record some, or run `python -m backend.tools.synth` + --synth)")
-    out, meta = train(paths, a.gestures, a.name, cfg, a.warm_start, sensors=a.sensors)
+    out, meta = train(paths, a.gestures, a.name, cfg, a.warm_start, sensors=a.sensors, sensor_weights=sw,
+                      val_sessions=a.val_sessions)
     print(json.dumps(meta["val_metrics"], indent=2))
     for g, m in meta["val_detail"]["per_gesture"].items():
         print(f"  {g:14s} P {m['precision']:.2f} R {m['recall']:.2f} n {m['n']} "
