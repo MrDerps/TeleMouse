@@ -9,20 +9,29 @@ from ..acquire import config
 
 ALL = ["emg", "imu", "hand"]
 LABEL = {"emg": "EMG", "imu": "IMU", "hand": "Camera"}
-DEFAULT = ["emg", "imu", "hand"]
-DEFAULT_EMG_WEIGHT = 0.2
+DEFAULT = ["emg", "imu"]                  # camera-free by default: works in any direction, no line of sight
+DEFAULT_EMG_WEIGHT = 0.6                  # without the camera EMG carries the finger gestures
+IMU_MODES = {"body": "Hand-relative (recommended)", "magnitude": "Direction-free (magnitudes only)"}
 
 
 def current() -> list[str]:
     cfg = config.load()
-    if cfg.get("sensors_version", 1) < 2:          # v2: EMG back on by default (at low weight)
+    if cfg.get("sensors_version", 1) < 3:          # v3: camera-free default (EMG + IMU)
         return DEFAULT
     s = cfg.get("model_sensors") or DEFAULT
     return [x for x in ALL if x in s] or DEFAULT
 
 
 def emg_weight() -> float:
-    return float(config.load().get("emg_weight", DEFAULT_EMG_WEIGHT))
+    cfg = config.load()
+    if cfg.get("sensors_version", 1) < 3:
+        return DEFAULT_EMG_WEIGHT
+    return float(cfg.get("emg_weight", DEFAULT_EMG_WEIGHT))
+
+
+def imu_mode() -> str:
+    m = config.load().get("imu_mode", "body")
+    return m if m in IMU_MODES else "body"
 
 
 def weights(sensors=None) -> dict:
@@ -81,12 +90,12 @@ class SensorPicker(QtWidgets.QWidget):
     def _weight(self, v, save=True):
         self.wlabel.setText(f"{v}%")
         if save:
-            config.save(emg_weight=v / 100)
+            config.save(emg_weight=v / 100, model_sensors=current(), sensors_version=3)
 
     def _toggled(self, *_):
         v = self.value()
         if not v:                                   # at least one sensor
             self.set(current())
             return
-        config.save(model_sensors=v, sensors_version=2)
+        config.save(model_sensors=v, sensors_version=3, emg_weight=emg_weight())
         self.app.sensors_changed(v)

@@ -154,6 +154,7 @@ class Pointer:
         self.pinch = 0.0
         # hold lock: a hold gesture stays active while the hand keeps the shape it had when it started
         self.pose_watch = {}                          # gid -> {"base", "n", "lost"}
+        self.last_hand_t = 0.0                        # last frame with a hand in view (camera may be off)
         self.pose_lock = threading.Lock()
         self.on_pose_release = None                   # executor callback(gid), called from this thread
         self.left_prev = None
@@ -362,6 +363,9 @@ class Pointer:
         self._move(v / 30)
 
     # ---------------------------------------------------------------- hold lock
+    def hand_recent(self, within=0.5) -> bool:
+        return time.perf_counter() - self.last_hand_t < within
+
     def watch_pose(self, gid):
         with self.pose_lock:
             self.pose_watch[gid] = {"base": None, "n": 0, "lost": None}
@@ -408,6 +412,8 @@ class Pointer:
             self.r_prev = None
 
     def _hand(self, a, h, now):
+        if len(a):
+            self.last_hand_t = now
         if self.pose_watch:
             self._check_poses(a, now)
         if self.s["mode"] in ("right_pinch", "right_gesture"):

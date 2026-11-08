@@ -36,6 +36,9 @@ imu:
   axis_fingers: [1, 0, 0]
   axis_thumb: [0, -1, 0]
   axis_up: [0, 0, -1]
+  mode: body                     # IMU features for NEW models: body = no gravity direction (works whichever way the
+                                 # arm points), motion relative to the hand kept; magnitude = direction-free only;
+                                 # raw = old behaviour (gravity kept). Each model stores its own mode.
   aa_hz: 20.0                    # anti-alias low-pass before averaging to 50 Hz
   acc_hp_hz: 0.5                 # high-passed accel copy (gravity removed)
 

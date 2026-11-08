@@ -115,7 +115,8 @@ class DashboardPage(QtWidgets.QWidget):
             r.addWidget(sw)
             p2.add(r)
             self.srow[key] = (st, sp, sw)
-        p2.add(label("Switches choose which sensors the gesture model listens to.", 12, 400, C["label"], wrap=True))
+        p2.add(label("Switches choose which sensors the gesture model listens to. EMG + IMU work in any direction "
+                     "without the camera.", 12, 400, C["label"], wrap=True))
         g.addWidget(p2, 0, 2, 1, 1)
 
         # 03 accuracy
@@ -266,7 +267,7 @@ class DashboardPage(QtWidgets.QWidget):
             return
         v = [s for s in sensor_picker.ALL if s in cur]
         from ..acquire import config
-        config.save(model_sensors=v, sensors_version=2)
+        config.save(model_sensors=v, sensors_version=3, emg_weight=sensor_picker.emg_weight())
         self.app.sensors_changed(v)
 
     def sync_sensor_switches(self, sensors):

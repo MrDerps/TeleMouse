@@ -340,3 +340,16 @@ Format:
 - Teach: the normal-activity block is 45 s until ~2 min of free activity is saved across recordings, then 10 s. Add examples on
   a gesture that "fires during normal activity" always gets 45 s.
 - Tests: backend 34/34 pass. The engine was restarted on the new code with the running model.
+
+## 2026-11-08 · TO: BOTH HUMANS · Camera-free by default; orientation-free IMU features (INTERFACE v0.7)
+- Goal (Jerry): it should work in any arm direction without the camera, so EMG + IMU only, with the IMU measuring change, not direction.
+- Backend: new `imu.mode` (config default `body`), stored per model in `feature_cfg`, so older models keep `raw`.
+  `body` drops the gravity direction: the 12 IMU slots are |jerk|, |angular accel|, 0, acc_hp(3), gyro(3), 0, |acc_hp|, |gyro|.
+  `magnitude` also zeroes the 6 vector slots. `train` accepts `"imu_mode"`. Rotation augmentation touches only real vectors.
+  Synthetic check, same motion with the arm pointing in different directions (feature difference in std units): raw 2.6,
+  body 0.11, magnitude 0.005.
+- App: the default model sensors are EMG + IMU (camera off), with EMG influence at 60%. Settings → Model → IMU features has
+  hand-relative or direction-free. The recorder needs the camera only if the model uses it. The camera hold lock runs only
+  while a hand is in view.
+- Jerry's current model `auto_1108_092745` was retrained in `body` mode: val recall 1.00, precision 1.00 (IMU alone: 1.00/1.00).
+- Tests: backend 34/34 pass.

@@ -206,6 +206,17 @@ class SettingsDialog(QtWidgets.QDialog):
         p2.add(row)
         p2.add(label("Raise it if you get accidental clicks, lower it if gestures are missed.", 12, 400, C["label"]))
         v.addWidget(p2)
+        pi = Panel("IMU features")
+        from .sensor_picker import IMU_MODES, imu_mode
+        from .ui import Segmented
+        keys = list(IMU_MODES)
+        seg = Segmented(list(IMU_MODES.values()), keys.index(imu_mode()))
+        seg.changed.connect(lambda i: config.save(imu_mode=keys[i]))
+        pi.add(seg)
+        pi.add(label("Both ignore which way your arm points (gravity is removed). Hand-relative still knows which way "
+                     "your hand turned or moved, so it can tell 'flick up' from 'flick down'. Direction-free uses only "
+                     "how strongly it moved. Applies at the next training.", 12, 400, C["label"], wrap=True))
+        v.addWidget(pi)
         p3 = Panel("Switched-off gestures")
         r = QtWidgets.QHBoxLayout()
         r.addWidget(label("Use them to teach the model what to ignore", 14, 500))

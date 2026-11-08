@@ -62,7 +62,8 @@ def train_everything(app, name=None, on_reply=None, warm_start=None):
     name = name or dt.datetime.now().strftime("auto_%m%d_%H%M%S")
     app.pending_model = name
     req = {"cmd": "train", "gestures": gestures, "sessions": sessions + [s for s in neg_sessions if s not in sessions],
-           "name": name, "sensors": sensors, "sensor_weights": sensor_picker.weights(sensors)}
+           "name": name, "sensors": sensors, "sensor_weights": sensor_picker.weights(sensors),
+           "imu_mode": sensor_picker.imu_mode()}
     if neg:
         req["negatives"] = neg               # switched-off gestures: learn to IGNORE these motions
     if warm_start:
@@ -234,7 +235,8 @@ class TeachFlow(QtCore.QObject):
         self.buf = StreamBuffer()
         self.buf.start()
         from ..record.ui import RecorderWindow
-        self.win = RecorderWindow(self.runner, self.buf, f"teach {g.get('name') or gid}", need=("imu", "hand"))
+        need = ("emg", "imu") + (("hand",) if "hand" in sensor_picker.current() else ())   # camera only if the model uses it
+        self.win = RecorderWindow(self.runner, self.buf, f"teach {g.get('name') or gid}", need=need)
         self.win.finished.connect(self._finished)
         self.win.showMaximized()
 

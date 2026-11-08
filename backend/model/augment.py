@@ -61,7 +61,8 @@ def augment(X, M, y, L, rng, acfg, log_clip):
             X[:, k] = np.log1p(np.minimum(np.expm1(X[:, k]) * s, log_clip))
     # small 3D rotation of IMU vectors and hand landmarks
     R = _rot(rng, acfg["rot_deg"]).astype(np.float32)
-    for k in (0, 3, 6):  # acc, acc_hp, gyro
+    vec_slots = (0, 3, 6) if acfg.get("imu_mode", "raw") == "raw" else (3, 6)   # body/magnitude: slot 0-2 are norms
+    for k in vec_slots:  # acc (raw only), acc_hp, gyro
         X[:, _I + k:_I + k + 3] = X[:, _I + k:_I + k + 3] @ R.T
     lm = X[:, _H:_H + 60].reshape(-1, 20, 3) @ R.T
     X[:, _H:_H + 60] = lm.reshape(-1, 60)

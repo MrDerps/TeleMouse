@@ -35,13 +35,17 @@ log = logging.getLogger("serve")
 
 
 def _train_worker(paths, gestures, name, cfg, q, sensors=None, sensor_weights=None, val_sessions=None,
-                  warm_start=None, negatives=None):
+                  warm_start=None, negatives=None, imu_mode=None):
     """Runs in a child process."""
     logging.basicConfig(level=logging.INFO, format="%(levelname)s train-worker: %(message)s")
     try:
         from pathlib import Path
 
         from backend.train import train
+        if imu_mode:
+            import copy
+            cfg = copy.deepcopy(cfg)
+            cfg["imu"]["mode"] = imu_mode
         _, meta = train([Path(p) for p in paths], gestures, name, cfg, warm_start=warm_start, negatives=negatives,
                         progress=lambda f, m: q.put(("progress", f, m)), sensors=sensors,
                         sensor_weights=sensor_weights, val_sessions=val_sessions)
@@ -234,6 +238,9 @@ class Server:
                 return {"ok": False, "error": "val_sessions must be a non-empty list of the training session ids"}
             if set(vs) >= known:
                 return {"ok": False, "error": "val_sessions must leave at least one session for training"}
+        imu_mode = req.get("imu_mode")
+        if imu_mode is not None and imu_mode not in ("raw", "body", "magnitude"):
+            return {"ok": False, "error": "imu_mode must be raw, body or magnitude"}
         neg = req.get("negatives") or []
         if not isinstance(neg, list) or not all(isinstance(g, str) for g in neg):
             return {"ok": False, "error": "negatives must be a list of gesture ids"}
@@ -244,7 +251,7 @@ class Server:
         self.train_q = mp.get_context("spawn").Queue()
         self.train_proc = mp.get_context("spawn").Process(
             target=_train_worker, args=([str(p) for p in paths], gestures, name, self.cfg, self.train_q, sensors,
-                                        sw, vs, ws, neg),
+                                        sw, vs, ws, neg, imu_mode),
             daemon=True)
         self.train_proc.start()
         self.progress, self.error = 0.0, None

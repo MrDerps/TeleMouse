@@ -104,6 +104,7 @@ def train(paths, gestures, name, cfg, warm_start=None, progress=None, sensors=No
     if not sensors:
         raise ValueError("sensors must include at least one of emg, imu, hand with weight > 0")
     cfg["train"]["aug"]["weights"] = weights
+    cfg["train"]["aug"]["imu_mode"] = cfg["imu"].get("mode", "raw")
     log.info("sensors %s, weights %s -> dropout %s", sensors, weights,
              dict(zip(MODALITIES, np.round(drop_probs(cfg["train"]["aug"]), 2).tolist())))
     t0 = time.perf_counter()

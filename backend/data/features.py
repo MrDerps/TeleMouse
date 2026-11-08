@@ -8,7 +8,11 @@ IMU and hand features for frame T only use data stamped <= T (causal).
 
 Feature layout per frame (D = 87), plus a (3,) presence mask [emg, imu, hand]:
   emg  [0:10)   log RMS, log MAV, log WL, ZC, SSC  x 2 channels  (rest-normalised units)
-  imu  [10:22)  acc(3, g, gravity kept), acc_hp(3), gyro(3, deg/s), |acc|, |acc_hp|, |gyro|
+  imu  [10:22)  depends on imu.mode (stored per model in feature_cfg, so old models keep theirs):
+                raw (models before 2026-11-08): acc(3, g, gravity kept), acc_hp(3), gyro(3, deg/s), |acc|, |acc_hp|, |gyro|
+                body (default): |jerk|, |angular accel|, 0, acc_hp(3), gyro(3), 0, |acc_hp|, |gyro|.
+                     No gravity direction, so it works whichever way the arm points; motion stays relative to the hand.
+                magnitude: like body but acc_hp(3) and gyro(3) zeroed: only direction-free magnitudes.
   hand [22:87)  60 wrist-relative landmarks / palm size, wrist xy (image), wrist velocity xy (1/s),
                 palm size (x5). Hand features for frame T use landmarks stamped <= T - hand.lag_s.
 """
@@ -171,6 +175,10 @@ class ImuStream:
         self.lp = butter(2, i["aa_hz"], "lowpass", fs=self.fs, output="sos")
         self.hp = butter(1, i["acc_hp_hz"], "highpass", fs=self.fs, output="sos")
         self.zl = self.zh = None
+        self.mode = i.get("mode", "raw")
+        if self.mode not in ("raw", "body", "magnitude"):
+            raise ValueError(f"imu.mode must be raw, body or magnitude, not {self.mode!r}")
+        self.prev = None                       # last (acc_hp, gyro) sample, for the derivative features
         self.t = np.zeros(0)
         self.f = np.zeros((0, N_IMU))
         self.v = np.zeros(0, bool)
@@ -197,12 +205,26 @@ class ImuStream:
                 if self.zh is None:
                     self.zh = sosfilt_zi(self.hp)[:, :, None] * lp[0, :3][None, None, :]
                 ah, self.zh = sosfilt(self.hp, lp[:, :3], axis=0, zi=self.zh)
-                out[i:j] = np.concatenate([lp[:, :3], ah, lp[:, 3:],
-                                           np.linalg.norm(lp[:, :3], axis=1, keepdims=True),
-                                           np.linalg.norm(ah, axis=1, keepdims=True),
-                                           np.linalg.norm(lp[:, 3:], axis=1, keepdims=True)], 1)
+                g = lp[:, 3:]
+                mags = [np.linalg.norm(lp[:, :3], axis=1, keepdims=True),
+                        np.linalg.norm(ah, axis=1, keepdims=True),
+                        np.linalg.norm(g, axis=1, keepdims=True)]
+                if self.mode == "raw":
+                    out[i:j] = np.concatenate([lp[:, :3], ah, g] + mags, 1)
+                else:
+                    first = self.prev if self.prev is not None else (ah[0], g[0])
+                    d_ah = np.diff(np.vstack([first[0], ah]), axis=0) * self.fs      # jerk (g/s)
+                    d_g = np.diff(np.vstack([first[1], g]), axis=0) * self.fs / 100.0  # angular accel (100 deg/s^2)
+                    self.prev = (ah[-1].copy(), g[-1].copy())
+                    zero3 = np.zeros_like(ah)
+                    body = [np.linalg.norm(d_ah, axis=1, keepdims=True), np.linalg.norm(d_g, axis=1, keepdims=True),
+                            np.zeros((len(ah), 1))]
+                    vec = [ah, g] if self.mode == "body" else [zero3, zero3]
+                    mags[0] = np.zeros_like(mags[0])     # |acc| mixes gravity with motion: depends on arm direction
+                    out[i:j] = np.concatenate(body + vec + mags, 1)
             else:
                 self.zl = self.zh = None
+                self.prev = None
             i = j
         self.t = np.concatenate([self.t, t])
         self.f = np.concatenate([self.f, out])

@@ -18,6 +18,8 @@ class LiveEngine:
         fc = meta.get("feature_cfg", {})
         if "hand" in fc and "lag_s" not in fc["hand"]:  # models trained before hand lag existed
             fc = deep_update(fc, {"hand": {"lag_s": 0.0}})
+        if "imu" in fc and "mode" not in fc["imu"]:     # models trained before imu.mode existed: gravity kept
+            fc = deep_update(fc, {"imu": {"mode": "raw"}})
         self.cfg = deep_update(cfg, fc)  # features exactly as at training time
         self.model, self.meta, self.norm = model, meta, norm
         self.classes = meta["classes"]

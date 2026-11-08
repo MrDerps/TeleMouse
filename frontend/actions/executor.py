@@ -106,7 +106,8 @@ class Executor:
             self.on_event({"id": gid, "kind": "end", "conf": 1.0, "_outcome": out + " (hand changed)"})
 
     def _watch(self, gid):
-        if self.pointer:
+        # hold lock only works with the camera: without a hand in view, trust the model's own end event
+        if self.pointer and self.pointer.hand_recent():
             self.pointer.watch_pose(gid)
 
     def _do(self, gid, kind, a):
