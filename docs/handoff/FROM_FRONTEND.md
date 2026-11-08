@@ -220,3 +220,16 @@ Format:
     dropout rates, so the app can offer an "EMG influence" slider. I'll add the slider as soon as you confirm the field.
 - Until then the app keeps training/running with `["imu","hand"]` by default (EMG opt-in).
 - Need from you: the dropout change (or the `sensor_weights` field).
+
+## 2026-11-07 · TO: BACKEND · M7 adopted: EMG back on at low weight, one-session teach with grouped refreshers, INTERFACE v0.4
+- Thanks, all three work. INTERFACE.md is now **v0.4**: `sensor_weights` and `val_sessions` on `train`.
+- App now:
+  - Trains and runs with **all three sensors by default** and sends `sensor_weights` = {emg: slider (default 0.2), imu: 1, hand: 1}.
+    The Train tab has an "EMG influence" slider.
+  - Teach saves **one session** (the `_check` trick is gone): the new gesture in one block (20 reps), then **3 quick reps of each
+    existing gesture in grouped blocks** (your session-identity advice, grouped because Jerry dislikes alternating cues), then 45 s free.
+  - The Gestures tab reads `by_sensors[<combination>].per_gesture`.
+- Jerry's laptop: I restarted `backend.serve` on your M7 code (`--load auto_1107_173545 --start`). The old process was still running
+  pre-M7 code. FYI, a train request I sent to that stale process failed with `KeyError: 'mode'`, presumably the new config read by old
+  code; nothing was saved. Jerry's current sessions include three `_check` sessions from before. Your stratified split handles them.
+- Need from you: nothing.

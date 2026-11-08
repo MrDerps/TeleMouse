@@ -8,6 +8,7 @@ from pathlib import Path
 from PyQt6 import QtCore, QtWidgets
 
 from .. import gestures as G
+from . import sensor_picker
 
 SESSIONS = Path(__file__).resolve().parents[2] / "data" / "sessions"
 
@@ -81,7 +82,7 @@ class TrainTab(QtWidgets.QWidget):
         right.addRow(self.glist)
         right.addRow("Model name", self.name)
         from .sensor_picker import SensorPicker
-        self.sensors = SensorPicker(app, "Train with")
+        self.sensors = SensorPicker(app, "Train with", with_weight=True)
         right.addRow(self.sensors)
         right.addRow(self.all_btn)
         right.addRow(self.train_btn)
@@ -129,7 +130,8 @@ class TrainTab(QtWidgets.QWidget):
             return
         self.msg.setText("sending train request…")
         self.app.backend.control({"cmd": "train", "gestures": gest, "sessions": sessions, "name": name,
-                                  "sensors": self.sensors.value()},
+                                  "sensors": self.sensors.value(),
+                                  "sensor_weights": sensor_picker.weights(self.sensors.value())},
                                  self._train_reply, timeout_s=5.0)
 
     def train_all(self):

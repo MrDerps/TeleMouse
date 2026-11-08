@@ -10,7 +10,7 @@ from .runner import Runner
 from .writer import StreamBuffer
 
 COLORS = {"rest": ("#123a5c", "#e8f1ff"), "relax": ("#15191c", "#7d8b96"), "cue": ("#f2a516", "#101010"),
-          "free": ("#1d5c34", "#e9ffe9"), "idle": ("#15191c", "#e5ebe6")}
+          "free": ("#1d5c34", "#e9ffe9"), "intro": ("#3b2a63", "#f0e9ff"), "idle": ("#15191c", "#e5ebe6")}
 SAFETY = ("SAFETY: electrodes on? The ESP32 must be powered from a battery, a power bank or an UNPLUGGED laptop "
           "- never a wall-powered PC.")
 
