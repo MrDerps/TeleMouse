@@ -24,7 +24,10 @@ class ProbBars(pg.PlotWidget):
         self.setXRange(0, 1)
         self.setMouseEnabled(False, False)
         self.hideButtons()
-        self.getPlotItem().getAxis("bottom").setTicks([[(0, "0"), (0.5, ".5"), (1, "1")]])
+        self.getPlotItem().getAxis("bottom").setTicks([[(0, "0%"), (0.5, "50%"), (1, "100%")]])
+        from .theme import font
+        for ax in ("left", "bottom"):
+            self.getPlotItem().getAxis(ax).setStyle(tickFont=font(15))
         self.bars = None
         self.classes = []
         self.setMinimumHeight(140)
@@ -37,10 +40,15 @@ class ProbBars(pg.PlotWidget):
         if list(classes) != self.classes or self.bars is None:
             self.clear()
             self.classes = list(classes)
+            from . import data
+            from .ai_viz import class_color
             y = np.arange(len(classes))
-            self.bars = pg.BarGraphItem(x0=0, y=y, height=0.6, width=np.zeros(len(classes)), brush="#5B9BFF", pen=None)
+            gi = [i - 1 if classes[0] == "none" else i for i in range(len(classes))]
+            brushes = ["#5C5C66" if c == "none" else class_color(g) for c, g in zip(classes, gi)]
+            self.bars = pg.BarGraphItem(x0=0, y=y, height=0.62, width=np.zeros(len(classes)), brushes=brushes, pen=None)
             self.addItem(self.bars)
-            self.getPlotItem().getAxis("left").setTicks([[(i, c) for i, c in enumerate(classes)]])
+            names = ["nothing" if c == "none" else data.gesture_label(c) for c in classes]
+            self.getPlotItem().getAxis("left").setTicks([[(i, n) for i, n in enumerate(names)]])
             self.setYRange(-0.6, len(classes) - 0.4)
         self.bars.setOpts(width=np.asarray(p, float))
 
@@ -51,6 +59,7 @@ class CameraView(QtWidgets.QLabel):
     def __init__(self):
         super().__init__(alignment=QtCore.Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(320, 240)
+        self.setSizePolicy(QtWidgets.QSizePolicy.Policy.Ignored, QtWidgets.QSizePolicy.Policy.Ignored)  # fill the panel, never grow it
         self.setStyleSheet("background:#0E0E10; color:#5C5C66; border-radius: 8px;")
         self.setText("no camera")
 

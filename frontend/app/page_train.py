@@ -44,8 +44,6 @@ class TrainPage(QtWidgets.QWidget):
         head = QtWidgets.QVBoxLayout()
         head.setSpacing(2)
         head.addWidget(label("Train", 22, 600))
-        self.sub = label("Teach gestures; the model retrains itself.", 13, 400, C["text2"])
-        head.addWidget(self.sub)
         lay.addLayout(head)
         self.stack = QtWidgets.QStackedWidget()
         self.stack.addWidget(self._experience())

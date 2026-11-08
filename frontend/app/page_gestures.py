@@ -70,8 +70,6 @@ class GesturesPage(QtWidgets.QWidget):
         tcol = QtWidgets.QVBoxLayout()
         tcol.setSpacing(2)
         tcol.addWidget(label("Gestures", 22, 600))
-        tcol.addWidget(label("Each gesture is taught on its own. Adding or removing one retrains the model on everything "
-                             "you've recorded.", 13, 400, C["text2"]))
         head.addLayout(tcol)
         head.addStretch(1)
         head.addWidget(button("+  Teach a new gesture", "Primary", lambda: self.app.teach_new(self)))
@@ -146,7 +144,7 @@ class GesturesPage(QtWidgets.QWidget):
         lay.addStretch(1)
         lay.addWidget(label("+", 34, 300, C["accent"]), 0, QtCore.Qt.AlignmentFlag.AlignCenter)
         lay.addWidget(label("Teach a new gesture", 16, 600), 0, QtCore.Qt.AlignmentFlag.AlignCenter)
-        lay.addWidget(label("about 2 minutes: do it ~20 times", 12, 400, C["text2"]), 0, QtCore.Qt.AlignmentFlag.AlignCenter)
+        lay.addWidget(label("about 2 minutes: do it 15 times", 12, 400, C["text2"]), 0, QtCore.Qt.AlignmentFlag.AlignCenter)
         lay.addStretch(1)
         f.mousePressEvent = lambda e: self.app.teach_new(self)
         return f

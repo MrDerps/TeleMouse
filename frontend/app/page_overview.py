@@ -48,7 +48,7 @@ class OverviewPage(QtWidgets.QScrollArea):
         for n, (t, d) in enumerate([
             ("Define", "Name a gesture (fist, swipe, pinch…) and pick what it does: click, scroll, drag, a key combo, "
                        "or move the mouse while held."),
-            ("Teach", "Do it about 20 times when the screen says so, then a minute of normal activity so Axion learns "
+            ("Teach", "Do it 15 times when the screen says so, then a minute of normal activity so Axion learns "
                       "what NOT to react to. It retrains on everything you have recorded."),
             ("Use", "Turn on 'Control my computer'. Gestures fire their actions; F9 stops everything instantly.")], 1):
             c = QtWidgets.QVBoxLayout()

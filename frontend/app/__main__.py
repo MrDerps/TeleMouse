@@ -167,6 +167,7 @@ class AxionApp(QtWidgets.QMainWindow):
         h.setContentsMargins(20, 0, 20, 0)
         self.status_lbl = label("", 12, 400, C["label"])
         self.msg_lbl = label("", 12, 400, C["text2"])
+        self.status_lbl.hide()                     # sensor rates etc. live in Data mode; keep the footer clean
         h.addWidget(self.status_lbl)
         h.addStretch(1)
         h.addWidget(self.msg_lbl)

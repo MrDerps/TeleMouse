@@ -11,7 +11,7 @@ from ..actions import describe
 from ..actions.pointer import DEFAULTS as POINTER_DEFAULTS
 from . import sensor_picker
 from .theme import C, SENSOR_COLOR, font
-from .ui import ColorBar, Metric, Panel, Switch, button, divider, label, tag
+from .ui import ColorBar, Panel, Switch, button, divider, label, tag
 from .widgets import CameraView, ProbBars
 
 SENSORS = [("emg", "EMG", "Forearm muscle signal", "2 channels · 1000 Hz"),
@@ -39,8 +39,6 @@ class DashboardPage(QtWidgets.QWidget):
         tcol = QtWidgets.QVBoxLayout()
         tcol.setSpacing(2)
         tcol.addWidget(label("Dashboard", 22, 600))
-        self.subtitle = label("", 13, 400, C["text2"])
-        tcol.addWidget(self.subtitle)
         head.addLayout(tcol)
         head.addStretch(1)
         self.connect_btn = button("Connect sensors", "Primary", self._toggle_sensors)
@@ -67,8 +65,8 @@ class DashboardPage(QtWidgets.QWidget):
 
         # 01 last event
         p1 = Panel("Last event", 1)
-        self.ev_name = label("Waiting for a gesture", 36, 600)
-        self.ev_action = label("", 14, 400, C["text2"])
+        self.ev_name = label("Waiting for a gesture", 56, 600)
+        self.ev_action = label("", 18, 400, C["text2"])
         p1.add(self.ev_name)
         p1.add(self.ev_action)
         row = QtWidgets.QHBoxLayout()
@@ -84,7 +82,7 @@ class DashboardPage(QtWidgets.QWidget):
         br.addWidget(button("Calibrate", None, self.app.calibrate_rest,
                             "Relax your hand for 3 seconds so the muscle signal has a fresh baseline"))
         br.addStretch(1)
-        self.ev_hint = label("F9 stops everything instantly, from any window.", 12, 400, C["label"])
+        self.ev_hint = label("F9 stops everything", 14, 400, C["label"])
         br.addWidget(self.ev_hint)
         p1.add(br)
         g.addWidget(p1, 0, 0, 1, 2)
@@ -95,19 +93,20 @@ class DashboardPage(QtWidgets.QWidget):
         for key, name, desc, spec in SENSORS:
             r = QtWidgets.QHBoxLayout()
             r.setSpacing(12)
-            r.addWidget(ColorBar(SENSOR_COLOR[key], 38))
+            r.addWidget(ColorBar(SENSOR_COLOR[key], 48))
             c = QtWidgets.QVBoxLayout()
             c.setSpacing(0)
             top = QtWidgets.QHBoxLayout()
-            top.addWidget(label(name, 15, 600))
-            st = label("offline", 12, 400, C["label"])
+            top.addWidget(label(name, 20, 600))
+            top.addSpacing(6)
+            st = label("offline", 15, 400, C["label"])
             top.addWidget(st)
             top.addStretch(1)
             c.addLayout(top)
-            sp = label(f"{desc} · {spec}", 12, 400, C["text2"])
+            sp = label(desc, 15, 400, C["text2"])
             c.addWidget(sp)
             if key == "emg":
-                c.addWidget(label("Battery power only while electrodes are on.", 11, 400, C["warn"]))
+                c.addWidget(label("Battery power only while electrodes are on.", 14, 400, C["warn"]))
             r.addLayout(c, 1)
             sw = Switch(key in sensor_picker.current())
             sw.setToolTip("Let the gesture model use this sensor")
@@ -115,8 +114,7 @@ class DashboardPage(QtWidgets.QWidget):
             r.addWidget(sw)
             p2.add(r)
             self.srow[key] = (st, sp, sw)
-        p2.add(label("Switches choose which sensors the gesture model listens to. EMG + IMU work in any direction "
-                     "without the camera.", 12, 400, C["label"], wrap=True))
+        p2.lay.addStretch(1)
         g.addWidget(p2, 0, 2, 1, 1)
 
         # 03 gestures -> actions
@@ -134,10 +132,12 @@ class DashboardPage(QtWidgets.QWidget):
         for t, k in POINTER_MODES:
             self.pmode.addItem(t, k)
         self.pspeed = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal, minimum=1, maximum=60)
-        self.pnow = label("", 12, 400, C["text2"], wrap=True)
+        self.pnow = label("", 15, 400, C["text2"], wrap=True)
+        self.pmode.setFont(font(17))
+        self.pmode.setMinimumHeight(44)
         p5.add(self.pmode)
         sr = QtWidgets.QHBoxLayout()
-        sr.addWidget(label("Speed", 13, 400, C["text2"]))
+        sr.addWidget(label("Speed", 17, 400, C["text2"]))
         sr.addWidget(self.pspeed, 1)
         p5.add(sr)
         p5.add(self.pnow)
@@ -169,15 +169,6 @@ class DashboardPage(QtWidgets.QWidget):
         lay = QtWidgets.QVBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(14)
-        strip = QtWidgets.QHBoxLayout()
-        strip.setSpacing(14)
-        self.m_resp = Metric("Response time", "ms")
-        self.m_age = Metric("Hand frame age", "ms")
-        self.m_rate = Metric("Model rate", "Hz")
-        self.m_cam = Metric("Camera delay", "ms")
-        for m in (self.m_resp, self.m_age, self.m_rate, self.m_cam):
-            strip.addWidget(m)
-        lay.addLayout(strip)
         mid = QtWidgets.QHBoxLayout()
         mid.setSpacing(14)
         traces = Panel("Live signals", 1)
@@ -185,9 +176,9 @@ class DashboardPage(QtWidgets.QWidget):
         glw = pg.GraphicsLayoutWidget()
         self.t_emg = np.arange(-5000, 0) / 1000
         self.t_imu = np.arange(-1000, 0) / 200
-        p1 = glw.addPlot(row=0, col=0, title="EMG ch1 / ch2 (display filter)")
-        p2 = glw.addPlot(row=1, col=0, title="Accelerometer (g)")
-        p3 = glw.addPlot(row=2, col=0, title="Gyroscope (°/s)")
+        p1 = glw.addPlot(row=0, col=0, title="EMG")
+        p2 = glw.addPlot(row=1, col=0, title="Accelerometer")
+        p3 = glw.addPlot(row=2, col=0, title="Gyroscope")
         for p in (p2, p3):
             p.setXLink(p1)
         self.c_emg = [p1.plot(pen=pg.mkPen(C["emg"])), p1.plot(pen=pg.mkPen("#3E7FB0"))]
@@ -195,7 +186,7 @@ class DashboardPage(QtWidgets.QWidget):
         self.c_acc = [p2.plot(pen=pg.mkPen(c)) for c in cols]
         self.c_gyr = [p3.plot(pen=pg.mkPen(c)) for c in cols]
         traces.add(glw, 1)
-        mid.addWidget(traces, 3)
+        mid.addWidget(traces, 1)
         right = QtWidgets.QVBoxLayout()
         right.setSpacing(14)
         cam = Panel("Camera", 2)
@@ -206,25 +197,8 @@ class DashboardPage(QtWidgets.QWidget):
         self.bars = ProbBars()
         out.add(self.bars, 1)
         right.addWidget(out, 2)
-        mid.addLayout(right, 2)
-        lay.addLayout(mid, 3)
-        bottom = QtWidgets.QHBoxLayout()
-        bottom.setSpacing(14)
-        acc = Panel("Accuracy by sensors (validation)", 4)
-        self.acc_table = QtWidgets.QTableWidget(0, 5)
-        self.acc_table.setHorizontalHeaderLabels(["sensors", "recognised", "precision", "false / min", "response"])
-        self.acc_table.horizontalHeader().setStretchLastSection(True)
-        self.acc_table.verticalHeader().setVisible(False)
-        self.acc_table.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.acc_table.setShowGrid(False)
-        acc.add(self.acc_table, 1)
-        bottom.addWidget(acc, 1)
-        log = Panel("Event log", 5)
-        self.log = QtWidgets.QListWidget()
-        log.add(self.log, 1)
-        bottom.addWidget(log, 1)
-        lay.addLayout(bottom, 2)
-        self._acc_key = None
+        mid.addLayout(right, 1)
+        lay.addLayout(mid, 1)
         return w
 
     # ================================================================== actions
@@ -303,15 +277,6 @@ class DashboardPage(QtWidgets.QWidget):
             self.control.blockSignals(True)
             self.control.setChecked(app.actions_enabled)
             self.control.blockSignals(False)
-        model = st.get("model")
-        parts = ["sensors " + ("connected" if connected else "not connected")]
-        from . import data as _data
-        parts.append(f"model: {_data.model_label(model)}" if model else
-                     ("no model yet: teach a gesture" if be.online else "engine offline"))
-        parts.append("recognising" if running else "paused")
-        parts.append("controlling the computer" if app.actions_enabled and not app.killed else
-                     ("STOPPED with F9" if app.killed else "not controlling the computer"))
-        self.subtitle.setText("  ·  ".join(parts))
 
         if self.stack.currentIndex() == 0:
             self._refresh_experience(sensors_live, rates, st)
@@ -341,13 +306,6 @@ class DashboardPage(QtWidgets.QWidget):
                           "Works when 'Control my computer' is on.")
 
     def _refresh_data(self, snap, st, rates):
-        lag = st.get("lag_ms")
-        self.m_resp.set(f"{lag:.0f}" if isinstance(lag, (int, float)) else "–")
-        hl = st.get("hand_lag_ms")
-        self.m_age.set(f"{hl:.0f}" if isinstance(hl, (int, float)) else "–")
-        self.m_rate.set(f"{self.app.probs_rate:.0f}")
-        cl = snap["status"].get("cam_latency")
-        self.m_cam.set(f"{1000 * cl:.0f}" if cl else "–")
         for i in range(2):
             self.c_emg[i].setData(self.t_emg, snap["emg"][:, i] + (0 if i == 0 else 0))
         for i in range(3):
@@ -361,24 +319,6 @@ class DashboardPage(QtWidgets.QWidget):
             self.camview.show_landmarks(snap["hand"])
         pr = self.app.backend.probs
         self.bars.set(*(pr[1:] if pr and self.app.backend.online else ([], [])))
-        m = self.app.model_info.get(st.get("model")) if st.get("model") else None
-        key = (st.get("model"), sensor_picker.key(sensor_picker.current()))
-        if key != self._acc_key:
-            self._acc_key = key
-            self.acc_table.setRowCount(0)
-            for combo, d in ((m or {}).get("by_sensors") or {}).items():
-                r = self.acc_table.rowCount()
-                self.acc_table.insertRow(r)
-                lat = d.get("latency_ms")
-                vals = [combo.replace("hand", "camera").replace("+", " + "), pct(d.get("recall")), pct(d.get("precision")),
-                        f"{d.get('fp_per_min', 0):.1f}" if d.get("fp_per_min") == d.get("fp_per_min") else "–",
-                        f"{lat:.0f} ms" if isinstance(lat, (int, float)) and lat == lat else "–"]
-                for c, v in enumerate(vals):
-                    it = QtWidgets.QTableWidgetItem(v)
-                    if combo == key[1]:
-                        it.setBackground(pg.mkColor(C["tint"]))
-                    self.acc_table.setItem(r, c, it)
-            self.acc_table.resizeColumnsToContents()
 
     def reload_gestures(self, gestures):
         while self.glist.count():
@@ -387,18 +327,19 @@ class DashboardPage(QtWidgets.QWidget):
                 it.widget().setParent(None)
         self._grows = {}
         if not gestures:
-            self.glist.addWidget(label("No gestures yet.", 14, 400, C["text2"]))
+            self.glist.addWidget(label("No gestures yet.", 18, 400, C["text2"]))
             self.glist.addWidget(button("Teach your first gesture", "Primary", lambda: self.app.teach_new(self)))
             return
         for g in [x for x in gestures if x.get("enabled", True)]:
             row = QtWidgets.QWidget()
             r = QtWidgets.QHBoxLayout(row)
-            r.setContentsMargins(8, 6, 8, 6)
-            r.addWidget(label(g.get("name") or g["id"], 15, 500))
+            r.setContentsMargins(10, 10, 10, 10)
+            r.setSpacing(12)
+            r.addWidget(label(g.get("name") or g["id"], 22, 600))
             r.addWidget(tag("hold" if g.get("kind") == "hold" else "instant",
-                            C["imu"] if g.get("kind") == "hold" else C["text2"]))
+                            C["imu"] if g.get("kind") == "hold" else C["text2"], 12))
             r.addStretch(1)
-            r.addWidget(label(describe(g.get("action")), 13, 400, C["text2"]))
+            r.addWidget(label(describe(g.get("action")), 18, 400, C["text2"]))
             self.glist.addWidget(row)
             self._grows[g["id"]] = row
 
@@ -412,7 +353,3 @@ class DashboardPage(QtWidgets.QWidget):
                 self.ev_conf.setText(f"{e.get('conf', 0):.0%}")
                 lag = (self.app.backend.status or {}).get("lag_ms")
                 self.ev_lat.setText(f"{lag:.0f} ms" if isinstance(lag, (int, float)) else "–")
-            self.log.insertItem(0, f"{time.strftime('%H:%M:%S')}   {e.get('id')} {e.get('kind')}   "
-                                   f"conf {e.get('conf', 0):.2f}   →  {outcome}")
-        while self.log.count() > 300:
-            self.log.takeItem(self.log.count() - 1)

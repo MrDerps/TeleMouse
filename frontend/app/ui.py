@@ -148,10 +148,10 @@ class Segmented(QtWidgets.QWidget):
         return self.group.checkedId()
 
 
-def tag(text, color=None):
+def tag(text, color=None, px=10):
     c = color or C["text2"]
     l = QtWidgets.QLabel(text.upper())
-    l.setFont(font(10, 600, tracking=0.08))
+    l.setFont(font(px, 600, tracking=0.08))
     l.setStyleSheet(f"color: {c}; border: 1px solid {c}; border-radius: 4px; padding: 1px 6px;")
     l.setSizePolicy(QtWidgets.QSizePolicy.Policy.Maximum, QtWidgets.QSizePolicy.Policy.Maximum)
     return l
