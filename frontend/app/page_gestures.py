@@ -24,14 +24,14 @@ class ActionDialog(QtWidgets.QDialog):
         lay.addWidget(self.editor)
         self.warn = label("", 12, 400, C["warn"], wrap=True)
         lay.addWidget(self.warn)
-        self.editor.needs_hold.connect(self._hold)
-        self._hold(self.editor.requires_hold())
         row = QtWidgets.QHBoxLayout()
         row.addStretch(1)
         row.addWidget(button("Cancel", None, self.reject))
         self.ok = button("Save", "Primary", self.accept)
         row.addWidget(self.ok)
         lay.addLayout(row)
+        self.editor.needs_hold.connect(self._hold)      # after the Save button exists
+        self._hold(self.editor.requires_hold())
 
     def _hold(self, needs):
         bad = needs and self.kind != "hold"
