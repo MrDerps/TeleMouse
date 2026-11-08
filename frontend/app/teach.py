@@ -1,13 +1,10 @@
 """Teach a gesture (new, or more examples of an existing one).
 
-Flow: record the gesture in ONE block (no alternating cues), then a short block of ~3 quick reps of each
-gesture you already have (grouped, one gesture at a time), then a short free-activity block. Then it
+Flow: record ONLY this gesture (one block, no other gestures), then a short free-activity block. Then it
 automatically retrains on EVERY recording of every defined gesture, loads the new model and starts it.
-Old gestures are never re-recorded in full: their earlier sessions are mixed in at training time.
-
-The refresher blocks stop the model from telling gestures apart by session differences (lighting, camera
-framing, IMU mount angle) instead of by the motion. Validation: the backend holds out the last 20% of each
-gesture's reps in every session (INTERFACE v0.4), so one session per run is enough.
+Old gestures are never re-recorded: their earlier sessions are mixed in at training time.
+Validation: the backend holds out the last 20% of each gesture's reps in every session (INTERFACE v0.4).
+(Optional refresher reps of other gestures exist in the code, `refresh`, but default to 0 by Jerry's choice.)
 """
 from __future__ import annotations
 
@@ -80,7 +77,7 @@ class TeachDialog(QtWidgets.QDialog):
         self.dy = QtWidgets.QSpinBox(minimum=-50, maximum=50, value=int(a.get("dy", -5)))
         self.reps = QtWidgets.QSpinBox(minimum=8, maximum=60, value=20)
         self.free = QtWidgets.QDoubleSpinBox(minimum=15, maximum=300, value=45, suffix=" s")
-        self.refresh = QtWidgets.QSpinBox(minimum=0, maximum=10, value=3)
+        self.refresh = QtWidgets.QSpinBox(minimum=0, maximum=10, value=0)   # kept, hidden: Jerry prefers one gesture
         self.est = QtWidgets.QLabel()
         form = QtWidgets.QFormLayout(self)
         form.addRow("Gesture id", self.gid)
@@ -91,12 +88,10 @@ class TeachDialog(QtWidgets.QDialog):
         form.addRow("  keys", self.combo)
         form.addRow("  scroll dy", self.dy)
         form.addRow("Repetitions", self.reps)
-        names = ", ".join(o["id"] for o in self.others) or "none yet"
-        form.addRow(f"Then quick reps of each other gesture ({names})", self.refresh)
         form.addRow("Free activity (no gestures)", self.free)
-        tip = QtWidgets.QLabel("First the same gesture every time the cue appears, then a few quick reps of each "
-                               "of your other gestures (one gesture at a time), then normal activity. Afterwards it "
-                               "retrains on all your recordings and starts the new model.")
+        tip = QtWidgets.QLabel("Only this gesture: do it once every time the cue appears, then normal activity. "
+                               "Afterwards it retrains on ALL your recordings (old gestures included) and starts "
+                               "the new model.")
         tip.setWordWrap(True)
         form.addRow(tip)
         form.addRow(self.est)
