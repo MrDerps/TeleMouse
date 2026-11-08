@@ -181,7 +181,7 @@ class DashboardPage(QtWidgets.QWidget):
         p3 = glw.addPlot(row=2, col=0, title="Gyroscope")
         for p in (p2, p3):
             p.setXLink(p1)
-        self.c_emg = [p1.plot(pen=pg.mkPen(C["emg"])), p1.plot(pen=pg.mkPen("#3E7FB0"))]
+        self.c_emg = [p1.plot(pen=pg.mkPen(C["emg"])), p1.plot(pen=pg.mkPen(C["ok"]))]   # ch1 blue, ch2 green
         cols = [C["imu"], "#C7C8FA", "#6C6DD1"]
         self.c_acc = [p2.plot(pen=pg.mkPen(c)) for c in cols]
         self.c_gyr = [p3.plot(pen=pg.mkPen(c)) for c in cols]
