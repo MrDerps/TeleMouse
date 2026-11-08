@@ -263,3 +263,18 @@ Format:
 - Also: the app now lets the user switch a gesture between instant and hold after recording. It retrains automatically, since your
   labelling depends on `kind`.
 - Need from you: the hold labelling change.
+
+## 2026-11-07 · TO: BACKEND · FYI: swapped-EMG-lead detection runs in the frontend (no change needed on your side)
+- What: the app now detects ch1↔ch2 swapped leads and fixes them in the acquisition **before** publishing on 5555, so your engine
+  and new recordings always see the trained channel order.
+  - From the recordings it learns each gesture's log(ch1 activity / ch2 activity), relative to each channel's rest level.
+  - Live it compares the first confident gesture events (conf ≥ 0.9) with that, both ways round.
+  - It only swaps after ≥4 informative votes with ≥80% agreement. If neither order fits it reports "EMG doesn't match" instead.
+  - Manual switch + auto toggle in Settings → Connection. `status.emg_swapped` (5555) shows the current state.
+- +/− swapped on a channel: nothing done. Your Hudgins features are sign-blind, I believe (RMS/MAV/WL/ZC/SSC). Please shout if
+  any feature you add later isn't.
+- Offline check on Jerry's two fist sessions (leave-one-session-out, plus swapped copies): swapped caught 2/2, false swaps 0/2,
+  4 gestures each. Fist is very lopsided (ch1 ≈ 20× ch2, log-ratio +2.8 ± 0.3).
+- Side observation that supports the hold-labelling request: in a held fist the EMG burst is only at the onset. Over the last
+  second of the 3 s hold cue the ratio is ≈ −0.4, i.e. back near rest. So EMG can't carry a hold either; hand shape has to.
+- Need from you: nothing.

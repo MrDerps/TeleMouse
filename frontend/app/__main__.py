@@ -70,6 +70,10 @@ class AxionApp(QtWidgets.QMainWindow):
         self.executor.on_event = self._extra_event
         from .teach import TeachFlow
         self.teach = TeachFlow(self)
+        from .swap_watch import SwapWatch
+        self.swap_watch = SwapWatch(self)
+        self.swap_watch.decided.connect(self._swap_decided)
+        self.swap_watch.start()
 
         central = QtWidgets.QWidget()
         v = QtWidgets.QVBoxLayout(central)
@@ -176,6 +180,8 @@ class AxionApp(QtWidgets.QMainWindow):
             self.pages["gestures"].reload()
 
     def sessions_changed(self):
+        if hasattr(self, "swap_watch"):
+            self.swap_watch.rebuild()
         if hasattr(self, "pages"):
             self.pages["gestures"].reload()
             self.pages["train"].reload()
@@ -216,6 +222,7 @@ class AxionApp(QtWidgets.QMainWindow):
     def calibrate_rest(self):
         QtWidgets.QMessageBox.information(self, "Calibrate", "Relax your arm and hand completely. Click OK, then stay "
                                                              "relaxed for 3 seconds.")
+        self.swap_watch.reset()
         self.backend.control({"cmd": "calibrate_rest", "seconds": 3},
                              lambda r: self.log("calibrating resting level (3 s)…" if r.get("ok") else
                                                 f"calibrate failed: {r.get('error')}"))
@@ -318,7 +325,30 @@ class AxionApp(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(parent or self, "Couldn't connect",
                                            f"{e}\n\nCheck the port and source in Settings → Connection.")
             return
+        self.swap_watch.reset()
         self.log(f"sensors connected: {kind}")
+
+    def set_emg_swap(self, on: bool):
+        """Manual or automatic channel swap; works when the sensors run inside the app."""
+        config.save(emg_swap=bool(on))
+        if self.sources.acq:
+            self.sources.acq.set_emg_swap(on)
+        self.swap_watch.reset()
+
+    def _swap_decided(self, decision):
+        if decision == "swap":
+            cur = bool(config.load().get("emg_swap", False))
+            self.set_emg_swap(not cur)
+            self.swap_watch.detector.decision = "swap"      # don't re-check right after fixing it
+            self.swap_watch._update_status()
+            self.log("EMG channels looked swapped: fixed automatically (undo in Settings → Connection)")
+            QtWidgets.QMessageBox.information(
+                self, "EMG channels swapped", "Your EMG leads look plugged in the other way round (ch1 ↔ ch2), "
+                "so Axion swapped them back automatically.\n\nIf that's wrong, undo it in Settings → Connection.")
+        elif decision == "mismatch":
+            self.log("EMG doesn't match your recordings: recalibrate or re-teach")
+        else:
+            self.log("EMG channels look correct")
 
     def disconnect_sensors(self):
         self.sources.stop()
@@ -422,6 +452,7 @@ class AxionApp(QtWidgets.QMainWindow):
         self.kill()
         self.executor.stop()
         self.pointer.stop()
+        self.swap_watch.stop()
         self.sources.stop()
         self.backend.stop()
         self.sensors.stop()

@@ -80,15 +80,49 @@ class SettingsDialog(QtWidgets.QDialog):
         row.addWidget(self.conn_btn)
         row.addStretch(1)
         p.add(row)
+        sw = Panel("EMG channels")
+        from .ui import Switch
+        r1 = QtWidgets.QHBoxLayout()
+        r1.addWidget(label("Swap ch1 and ch2", 14, 500))
+        r1.addStretch(1)
+        self.swap_sw = Switch(bool(cfg.get("emg_swap", False)))
+        self.swap_sw.toggled.connect(self.app.set_emg_swap)
+        r1.addWidget(self.swap_sw)
+        sw.add(r1)
+        r2 = QtWidgets.QHBoxLayout()
+        r2.addWidget(label("Detect swapped leads automatically", 14, 500))
+        r2.addStretch(1)
+        self.auto_sw = Switch(bool(cfg.get("emg_swap_auto", True)))
+        self.auto_sw.toggled.connect(lambda on: config.save(emg_swap_auto=bool(on)))
+        r2.addWidget(self.auto_sw)
+        sw.add(r2)
+        self.swap_status = label("", 12, 400, C["text2"], wrap=True)
+        sw.add(self.swap_status)
+        sw.add(label("Automatic check: after you connect or calibrate, the first few confident gestures are compared "
+                     "with your recordings. If the EMG only matches with ch1 and ch2 swapped, they're swapped for you. "
+                     "+/− swapped on a channel doesn't matter.", 12, 400, C["label"], wrap=True))
+        self._swap_timer = QtCore.QTimer(self, interval=500)
+        self._swap_timer.timeout.connect(self._swap_refresh)
+        self._swap_timer.start()
         p.add(label("Safety: while electrodes are on a person, the ESP32 must run from a battery, a power bank or an "
                     "unplugged laptop. Never from a wall-powered PC.", 12, 400, C["warn"], wrap=True))
         v.addWidget(p)
+        v.addWidget(sw)
         v.addStretch(1)
         for wdg in (self.src, self.port):
             wdg.currentTextChanged.connect(self._save_conn)
         self.cam.valueChanged.connect(self._save_conn)
         self.notes.textChanged.connect(self._save_conn)
         return w
+
+    def _swap_refresh(self):
+        cur = bool(config.load().get("emg_swap", False))
+        if self.swap_sw.isChecked() != cur:
+            self.swap_sw.blockSignals(True)
+            self.swap_sw.setChecked(cur)
+            self.swap_sw.blockSignals(False)
+        self.swap_status.setText("Status: " + self.app.swap_watch.status +
+                                 ("" if self.app.sources.acq else "  (needs the sensors running in this app)"))
 
     def _refresh_ports(self, keep=None):
         import serial.tools.list_ports as lp

@@ -52,6 +52,7 @@ class Acquisition:
         self._hand_hist = collections.deque(maxlen=30 * 30)
         self.img_size = (640, 480)
         self.two_hands = bool(self.cfg.get("two_hands", False))
+        self.emg_swap = bool(self.cfg.get("emg_swap", False))
         self.assigner = HandAssigner(imu_hand=self.cfg.get("imu_hand", "Right"))
         self.roles = (None, None)              # (gesture hand, pointer hand) of the latest frame, for previews
 
@@ -97,7 +98,16 @@ class Acquisition:
         self.log("[acquire] stopped")
 
     # ------------------------------------------------------------------ sensor callbacks
+    def set_emg_swap(self, on: bool, save=True):
+        """Swap ch1 <-> ch2 from now on (applies to everything downstream: engine, recordings, plots)."""
+        self.emg_swap = bool(on)
+        if save:
+            config.save(emg_swap=self.emg_swap)
+        self.log(f"[acquire] EMG channels {'SWAPPED (ch1<->ch2)' if on else 'in normal order'}")
+
     def _on_block(self, t0, i0, emg, imu_t0, k0, imu):
+        if self.emg_swap:
+            emg = np.ascontiguousarray(emg[:, ::-1])
         with self.lock:
             if self.pub is None:
                 return
@@ -161,6 +171,7 @@ class Acquisition:
                 "imu_state": st.imu_state_name if st else None,
                 "crc_errors": rd.parser.crc_errors if rd else 0,
                 "cam_latency": self.cam_latency,
+                "emg_swapped": self.emg_swap,
             }
             self.last_status = hdr
             with self.lock:
