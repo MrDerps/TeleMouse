@@ -1,6 +1,6 @@
 """Which sensors the model uses (INTERFACE `sensors` on train/start) and how much EMG may count
-(`sensor_weights`, v0.4). Default: all three sensors with EMG at 20% weight. The backend then trains with
-EMG dropped most of the time, so it can help but can't dominate (it shifts whenever the pads move)."""
+(`sensor_weights`, v0.4). Default: EMG + IMU (camera off) with EMG at full weight, so both are main sensors. Lower the
+EMG weight to train with EMG dropped more often, so it can help but not dominate (useful if the pads move a lot)."""
 from __future__ import annotations
 
 from PyQt6 import QtCore, QtWidgets
@@ -10,7 +10,7 @@ from ..acquire import config
 ALL = ["emg", "imu", "hand"]
 LABEL = {"emg": "EMG", "imu": "IMU", "hand": "Camera"}
 DEFAULT = ["emg", "imu"]                  # camera-free by default: works in any direction, no line of sight
-DEFAULT_EMG_WEIGHT = 0.6                  # without the camera EMG carries the finger gestures
+DEFAULT_EMG_WEIGHT = 1.0                  # EMG + IMU are the main sensors: EMG gets the same footing as the IMU
 IMU_MODES = {"body": "Hand-relative (recommended)", "magnitude": "Direction-free (magnitudes only)"}
 
 
@@ -65,7 +65,7 @@ class SensorPicker(QtWidgets.QWidget):
             self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal, minimum=0, maximum=100,
                                             value=int(100 * emg_weight()))
             self.slider.setFixedWidth(120)
-            self.slider.setToolTip("How much the model may rely on EMG (training). Low = IMU + camera do the work.")
+            self.slider.setToolTip("How much the model may rely on EMG (training). 100% = a main sensor, equal to the IMU. Low = IMU + camera do the work.")
             self.wlabel = QtWidgets.QLabel()
             self.slider.valueChanged.connect(self._weight)
             lay.addSpacing(12)
