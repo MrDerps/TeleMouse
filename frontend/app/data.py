@@ -68,6 +68,7 @@ def delete_model(name):
     p = MODELS / name
     if p.is_dir() and p.parent == MODELS:
         shutil.rmtree(p)
+        set_model_label(name, None)
         return True
     return False
 
@@ -82,3 +83,46 @@ def wipe_all():
     g = REPO / "data" / "gestures.json"
     if g.exists():
         g.unlink()
+
+
+# ---------------------------------------------------------------- model display names (frontend only)
+def _cfg():
+    from ..acquire import config
+    return config
+
+
+def model_gestures(m) -> list[str]:
+    return [c for c in (m or {}).get("classes", []) if c != "none"]
+
+
+def gesture_label(gid) -> str:
+    from .. import gestures as G
+    g = G.get(G.load(), gid)
+    return (g or {}).get("name") or gid.replace("_", " ")
+
+
+def model_label(name, m=None) -> str:
+    """User-chosen name, else the gestures it knows ('Fist + Swipe up'), else the internal name."""
+    if not name:
+        return "–"
+    alias = (_cfg().load().get("model_names") or {}).get(name)
+    if alias:
+        return alias
+    if m is None:
+        p = MODELS / name / "model.json"
+        try:
+            m = json.loads(p.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            m = None
+    gl = model_gestures(m)
+    return " + ".join(gesture_label(g) for g in gl) if gl else name
+
+
+def set_model_label(name, alias):
+    cfg = _cfg()
+    names = dict(cfg.load().get("model_names") or {})
+    if alias:
+        names[name] = alias
+    else:
+        names.pop(name, None)
+    cfg.save(model_names=names)

@@ -8,7 +8,7 @@ from PyQt6 import QtCore, QtGui, QtWidgets
 from .. import gestures as G
 from . import data, sensor_picker
 from .theme import C
-from .ui import FlowGrid, Panel, button, label
+from .ui import FlowGrid, Panel, button, label, tag
 
 
 def _pct(x):
@@ -102,14 +102,24 @@ class TrainPage(QtWidgets.QWidget):
         lay.setContentsMargins(16, 14, 16, 12)
         lay.setSpacing(4)
         top = QtWidgets.QHBoxLayout()
-        top.addWidget(label(m["name"], 15, 600))
-        top.addStretch(1)
+        top.addWidget(label(data.model_label(m["name"], m), 16, 600, wrap=True), 1)
         if current:
             top.addWidget(label("● running" if self.app.backend.status.get("state") == "running" else "● loaded",
                                 12, 500, C["accent"]))
+        more = button("•••", "Ghost")
+        menu = QtWidgets.QMenu(more)
+        menu.addAction("Rename…", lambda: self.rename_model(m))
+        menu.addAction("Delete…", lambda: self.delete_model(m["name"]))
+        more.setMenu(menu)
+        top.addWidget(more)
         lay.addLayout(top)
-        gest = [c for c in m.get("classes", []) if c != "none"]
-        lay.addWidget(label(_when(m) + "  ·  " + (", ".join(gest) or "–"), 12, 400, C["text2"], wrap=True))
+        tags = QtWidgets.QHBoxLayout()
+        tags.setSpacing(6)
+        for g in data.model_gestures(m):
+            tags.addWidget(tag(data.gesture_label(g), C["link"]))
+        tags.addStretch(1)
+        lay.addLayout(tags)
+        lay.addWidget(label(_when(m), 12, 400, C["text2"]))
         vm = (m.get("by_sensors") or {}).get(sensor_picker.key(m.get("sensors") or sensor_picker.ALL)) or m.get("val_metrics") or {}
         lay.addWidget(label(f"recognised {_pct(vm.get('recall'))}  ·  precision {_pct(vm.get('precision'))}", 13, 400))
         sens = " + ".join(sensor_picker.LABEL.get(s, s) for s in (m.get("sensors") or sensor_picker.ALL))
@@ -117,11 +127,12 @@ class TrainPage(QtWidgets.QWidget):
         lay.addWidget(label(sens + (f"  ·  EMG weight {w:.0%}" if isinstance(w, (int, float)) and "emg" in (m.get("sensors") or ["emg"]) else ""),
                             12, 400, C["label"]))
         btns = QtWidgets.QHBoxLayout()
-        use = button("Use", "Primary" if not current else None, lambda: self.app.use_model(m["name"]))
-        use.setEnabled(not current or self.app.backend.status.get("state") != "running")
+        running_here = current and self.app.backend.status.get("state") == "running"
+        use = button("In use" if running_here else "Use", "Primary" if not current else None,
+                     lambda: self.app.use_model(m["name"]))
+        use.setEnabled(not running_here)
         btns.addWidget(use)
         btns.addStretch(1)
-        btns.addWidget(button("Delete", "Danger", lambda: self.delete_model(m["name"])))
         lay.addLayout(btns)
         return f
 
@@ -144,8 +155,9 @@ class TrainPage(QtWidgets.QWidget):
         sp.add(self.sess, 1)
         left.addWidget(sp, 3)
         mp = Panel("Models", 2)
-        self.models = QtWidgets.QTableWidget(0, 6)
-        self.models.setHorizontalHeaderLabels(["model", "gestures", "created", "recognised", "precision", "false / min"])
+        self.models = QtWidgets.QTableWidget(0, 7)
+        self.models.setHorizontalHeaderLabels(["name", "model id", "gestures", "created", "recognised", "precision",
+                                               "false / min"])
         self.models.horizontalHeader().setStretchLastSection(True)
         self.models.verticalHeader().setVisible(False)
         self.models.setEditTriggers(QtWidgets.QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -171,7 +183,7 @@ class TrainPage(QtWidgets.QWidget):
 
     def _sel_model(self):
         r = self.models.currentRow()
-        return self.models.item(r, 0).text() if r >= 0 and self.models.item(r, 0) else None
+        return self.models.item(r, 1).text() if r >= 0 and self.models.item(r, 1) else None
 
     def _show_curve(self):
         name = self._sel_model()
@@ -214,7 +226,8 @@ class TrainPage(QtWidgets.QWidget):
             self.models.insertRow(r)
             vm = m.get("val_metrics") or {}
             fp = vm.get("fp_per_min")
-            vals = [m["name"], ", ".join(c for c in m.get("classes", []) if c != "none"), _when(m), _pct(vm.get("recall")),
+            vals = [data.model_label(m["name"], m), m["name"],
+                    ", ".join(data.gesture_label(g) for g in data.model_gestures(m)), _when(m), _pct(vm.get("recall")),
                     _pct(vm.get("precision")), f"{fp:.1f}" if isinstance(fp, (int, float)) and fp == fp else "–"]
             for c, v in enumerate(vals):
                 self.models.setItem(r, c, QtWidgets.QTableWidgetItem(v))
@@ -243,7 +256,7 @@ class TrainPage(QtWidgets.QWidget):
             self.s2_sub.setText(st.get("message") or "")
             self.progress.setValue(0)
         else:
-            self.s2_txt.setText(f"Model: {st.get('model')}" if st.get("model") else "No model yet")
+            self.s2_txt.setText(f"Model: {data.model_label(st.get('model'))}" if st.get("model") else "No model yet")
             self.s2_sub.setText("Retrains automatically whenever you add, re-teach or remove a gesture.")
             self.progress.setValue(1000 if st.get("model") else 0)
         self.retrain_btn.setEnabled(be.online and st.get("state") != "training")
@@ -251,13 +264,20 @@ class TrainPage(QtWidgets.QWidget):
         self.s3_txt.setText("Recognising gestures" if running else ("Ready to start" if st.get("model") else "Waiting for a model"))
 
     # ================================================================== deletes
+    def rename_model(self, m):
+        cur = data.model_label(m["name"], m)
+        txt, ok = QtWidgets.QInputDialog.getText(self, "Rename model", "Model name:", text=cur)
+        if ok:
+            data.set_model_label(m["name"], txt.strip() or None)
+            self.reload()
+
     def delete_model(self, name):
         st = self.app.backend.status if self.app.backend.online else {}
         if st.get("model") == name:
-            QtWidgets.QMessageBox.information(self, "Delete model", f"'{name}' is the model in use. Use another model "
+            QtWidgets.QMessageBox.information(self, "Delete model", f"'{data.model_label(name)}' is the model in use. Use another model "
                                               "first, or retrain, then delete this one.")
             return
-        if QtWidgets.QMessageBox.question(self, "Delete model", f"Delete model '{name}'? This can't be undone.") \
+        if QtWidgets.QMessageBox.question(self, "Delete model", f"Delete model '{data.model_label(name)}'? This can't be undone.") \
                 == QtWidgets.QMessageBox.StandardButton.Yes:
             data.delete_model(name)
             self.app.refresh_models()

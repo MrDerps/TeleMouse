@@ -9,12 +9,12 @@ Validation: the backend holds out the last 20% of each gesture's reps in every s
 from __future__ import annotations
 
 import datetime as dt
+import re
 import threading
 
 from PyQt6 import QtCore, QtWidgets
 
 from .. import gestures as G
-from ..actions import ACTION_TYPES, BUTTONS
 from ..record.plan import build_blocks, total_seconds
 from ..record.runner import Runner
 from ..record.writer import StreamBuffer, write_session
@@ -51,103 +51,100 @@ def train_everything(app, name=None, on_reply=None):
                   f"sensors {sensor_picker.key(sensors)}" + (f" (EMG weight {sensor_picker.emg_weight():.0%})" if "emg" in sensors else ""))
 
 
+REPS, FREE_S = 15, 45.0
+
+
+def make_id(name: str, taken) -> str:
+    """'Thumbs up!' -> 'thumbs_up' (unique among `taken`)."""
+    base = re.sub(r"[^a-z0-9]+", "_", name.lower()).strip("_") or "gesture"
+    if not base[0].isalpha():
+        base = "g_" + base
+    gid, n = base, 2
+    while gid in taken or gid == "none":
+        gid, n = f"{base}_{n}", n + 1
+    return gid
+
+
 class TeachDialog(QtWidgets.QDialog):
+    """New gesture: name, instant/hold, what it does. Existing gesture: just confirm more examples."""
+
     def __init__(self, parent, existing: dict | None, others: list | None = None):
         super().__init__(parent)
+        from .action_editor import ActionEditor
+        from .theme import C
+        from .ui import Segmented, button, label
         self.existing = existing
-        self.others = others or []                  # gesture dicts already trained (for the refresher blocks)
-        self.setWindowTitle(f"More examples of '{existing['id']}'" if existing else "Teach a new gesture")
-        self.gid = QtWidgets.QLineEdit(existing["id"] if existing else "")
-        self.gid.setPlaceholderText("snake_case, e.g. thumbs_up")
-        self.gid.setEnabled(existing is None)
-        self.name = QtWidgets.QLineEdit(existing.get("name", "") if existing else "")
-        self.kind = QtWidgets.QComboBox()
-        self.kind.addItems(["instant", "hold"])
+        self.others = others or []
+        self.refresh = 0                         # refresher reps of other gestures (off: Jerry prefers one gesture)
+        self.setWindowTitle("Add examples" if existing else "Teach a new gesture")
+        self.setMinimumWidth(460)
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(26, 22, 26, 20)
+        lay.setSpacing(14)
         if existing:
-            self.kind.setCurrentText(existing.get("kind", "instant"))
-            self.kind.setEnabled(False)
-        a = (existing or {}).get("action") or {"type": "click", "button": "left"}
-        self.atype = QtWidgets.QComboBox()
-        self.atype.addItems(ACTION_TYPES)
-        self.atype.setCurrentText(a.get("type", "click"))
-        self.button = QtWidgets.QComboBox()
-        self.button.addItems(BUTTONS)
-        self.button.setCurrentText(a.get("button", "left"))
-        self.combo = QtWidgets.QLineEdit(a.get("combo", "ctrl+z"))
-        self.dy = QtWidgets.QSpinBox(minimum=-50, maximum=50, value=int(a.get("dy", -5)))
-        self.reps = QtWidgets.QSpinBox(minimum=8, maximum=60, value=20)
-        self.free = QtWidgets.QDoubleSpinBox(minimum=15, maximum=300, value=45, suffix=" s")
-        self.refresh = QtWidgets.QSpinBox(minimum=0, maximum=10, value=0)   # kept, hidden: Jerry prefers one gesture
-        self.est = QtWidgets.QLabel()
-        form = QtWidgets.QFormLayout(self)
-        form.addRow("Gesture id", self.gid)
-        form.addRow("Name", self.name)
-        form.addRow("Kind", self.kind)
-        form.addRow("Action", self.atype)
-        form.addRow("  button", self.button)
-        form.addRow("  keys", self.combo)
-        form.addRow("  scroll dy", self.dy)
-        form.addRow("Repetitions", self.reps)
-        form.addRow("Free activity (no gestures)", self.free)
-        tip = QtWidgets.QLabel("Only this gesture: do it once every time the cue appears, then normal activity. "
-                               "Afterwards it retrains on ALL your recordings (old gestures included) and starts "
-                               "the new model.")
-        tip.setWordWrap(True)
-        form.addRow(tip)
-        form.addRow(self.est)
-        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok |
-                                        QtWidgets.QDialogButtonBox.StandardButton.Cancel)
-        bb.button(QtWidgets.QDialogButtonBox.StandardButton.Ok).setText("Start recording…")
-        bb.accepted.connect(self._ok)
-        bb.rejected.connect(self.reject)
-        form.addRow(bb)
-        for w in (self.reps, self.free, self.refresh):
-            w.valueChanged.connect(self._est)
-        self.atype.currentTextChanged.connect(self._vis)
-        self._vis()
-        self._est()
+            lay.addWidget(label(f"More examples of {existing.get('name') or existing['id']}", 20, 600, wrap=True))
+            lay.addWidget(label("You'll do this gesture again whenever the screen says so. Then the model retrains on "
+                                "everything you've recorded.", 13, 400, C["text2"], wrap=True))
+        else:
+            lay.addWidget(label("Teach a new gesture", 20, 600))
+            lay.addWidget(label("Give it a name and pick what it does. Then you'll show it a few times.",
+                                13, 400, C["text2"], wrap=True))
+            lay.addWidget(label("NAME", 11, 500, C["label"], tracking=0.08))
+            self.name = QtWidgets.QLineEdit()
+            self.name.setPlaceholderText("e.g. Fist, Swipe up, Thumbs up")
+            lay.addWidget(self.name)
+            lay.addWidget(label("TYPE", 11, 500, C["label"], tracking=0.08))
+            self.kind = Segmented(["Instant: do it once", "Hold: keep doing it"])
+            lay.addWidget(self.kind)
+            lay.addWidget(label("WHAT IT DOES", 11, 500, C["label"], tracking=0.08))
+            self.editor = ActionEditor({"type": "click", "button": "left"})
+            self.editor.needs_hold.connect(lambda h: h and self.kind.group.button(1).setChecked(True))
+            lay.addWidget(self.editor)
+        info = QtWidgets.QFrame()
+        info.setObjectName("Panel")
+        il = QtWidgets.QVBoxLayout(info)
+        il.setContentsMargins(14, 10, 14, 10)
+        il.addWidget(label(f"{REPS} repetitions  ·  {FREE_S:.0f} s of normal activity  ·  about 2 minutes", 13, 500))
+        il.addWidget(label("Do it once each time the cue appears. During the normal-activity part, move naturally but "
+                           "don't do the gesture.", 12, 400, C["text2"], wrap=True))
+        lay.addWidget(info)
+        self.err = label("", 12, 400, C["bad"], wrap=True)
+        lay.addWidget(self.err)
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(button("Cancel", None, self.reject))
+        row.addWidget(button("Start recording", "Primary", self._ok))
+        lay.addLayout(row)
 
-    def _vis(self, *_):
-        t = self.atype.currentText()
-        lay = self.layout()
-        for w, show in ((self.button, t in ("click", "double_click", "drag")), (self.combo, t == "key"),
-                        (self.dy, t == "scroll")):
-            w.setVisible(show)
-            lay.labelForField(w).setVisible(show)
+    # values -----------------------------------------------------------------
+    def kind_value(self):
+        if self.existing:
+            return self.existing.get("kind", "instant")
+        return "hold" if self.kind.index() == 1 else "instant"
 
     def action(self):
-        t = self.atype.currentText()
-        if t in ("click", "double_click", "drag"):
-            return {"type": t, "button": self.button.currentText()}
-        if t == "key":
-            return {"type": t, "combo": self.combo.text().strip().lower()}
-        if t == "scroll":
-            return {"type": t, "dx": 0, "dy": self.dy.value(), "continuous": self.kind.currentText() == "hold"}
-        if t == "mode_toggle":
-            return {"type": t, "mode": "pointer"}
-        if t == "pointer_hold":
-            return {"type": t}
-        return {"type": "none"}
+        return self.existing.get("action") if self.existing else self.editor.action(self.kind_value())
 
     def plan(self, g):
-        blocks = [(g, self.reps.value())] + [(o, self.refresh.value()) for o in self.others if o["id"] != g["id"]]
-        return build_blocks(blocks, rest_s=8.0, free_s=self.free.value())
-
-    def _est(self, *_):
-        steps = self.plan({"id": "_x", "name": "x", "kind": self.kind.currentText()})
-        self.est.setText(f"about {total_seconds(steps) / 60:.1f} min")
+        blocks = [(g, REPS)] + [(o, self.refresh) for o in self.others if o["id"] != g["id"]]
+        return build_blocks(blocks, rest_s=8.0, free_s=FREE_S)
 
     def _ok(self):
-        gid = self.gid.text().strip()
-        if self.atype.currentText() in ("drag", "pointer_hold") and self.kind.currentText() != "hold":
-            QtWidgets.QMessageBox.warning(self, "Teach", "That action needs a HOLD gesture (kind = hold).")
+        if self.existing:
+            self.accept()
             return
-        if not G.ID_RE.match(gid) or gid == "none":
-            QtWidgets.QMessageBox.warning(self, "Teach", "Gesture id must be snake_case (a-z, 0-9, _).")
+        name = self.name.text().strip()
+        if not name:
+            self.err.setText("Give the gesture a name.")
             return
-        if self.existing is None and G.get(G.load(), gid):
-            QtWidgets.QMessageBox.warning(self, "Teach", f"'{gid}' already exists: select it and use 'Add examples'.")
+        d = G.load()
+        if any((g.get("name") or "").strip().lower() == name.lower() for g in d["gestures"]):
+            self.err.setText(f"You already have a gesture called '{name}'. Use 'Add examples' on it instead.")
             return
+        if self.editor.requires_hold() and self.kind_value() != "hold":
+            self.err.setText("That action needs the Hold type.")
+            return
+        self.gid = make_id(name, {g["id"] for g in d["gestures"]})
         self.accept()
 
 
@@ -163,7 +160,7 @@ class TeachFlow(QtCore.QObject):
     def start(self, parent, gid=None):
         if not self.app.sensors.snapshot()["last_msg"] or \
                 __import__("time").perf_counter() - self.app.sensors.snapshot()["last_msg"] > 2:
-            QtWidgets.QMessageBox.information(parent, "Teach", "Start the sensors first (Live tab).")
+            QtWidgets.QMessageBox.information(parent, "Teach", "Connect the sensors first (Dashboard → Connect sensors).")
             return
         d = G.load()
         existing = G.get(d, gid) if gid else None
@@ -172,22 +169,19 @@ class TeachFlow(QtCore.QObject):
         dlg = TeachDialog(parent, existing, others)
         if dlg.exec() != QtWidgets.QDialog.DialogCode.Accepted:
             return
-        gid = dlg.gid.text().strip()
-        g = G.get(d, gid)
-        if g is None:
-            g = G.add(d, gid, dlg.name.text().strip() or None, dlg.kind.currentText(), dlg.action())
+        if existing:
+            g, gid = existing, existing["id"]
         else:
-            g["action"] = dlg.action()
-            if dlg.name.text().strip():
-                g["name"] = dlg.name.text().strip()
-        G.save(d)
+            gid = dlg.gid
+            g = G.add(d, gid, dlg.name.text().strip(), dlg.kind_value(), dlg.action())
+            G.save(d)
         self.app.gestures_changed()
         self.gid, self.snapshot = gid, d
         self.runner = Runner(dlg.plan(g))
         self.buf = StreamBuffer()
         self.buf.start()
         from ..record.ui import RecorderWindow
-        self.win = RecorderWindow(self.runner, self.buf, f"teach {gid}", need=("imu", "hand"))
+        self.win = RecorderWindow(self.runner, self.buf, f"teach {g.get('name') or gid}", need=("imu", "hand"))
         self.win.finished.connect(self._finished)
         self.win.showMaximized()
 

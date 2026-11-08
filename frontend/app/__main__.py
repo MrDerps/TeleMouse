@@ -336,7 +336,7 @@ class AxionApp(QtWidgets.QMainWindow):
         live = snap["status"] if now - snap["last_msg"] < 1.5 else {}
         self.status_lbl.setText(
             f"EMG {self.rates['emg']:.0f} Hz · IMU {self.rates['imu']:.0f} Hz · Camera {self.rates['hand']:.0f} fps"
-            f"   ·   model {st.get('model') or '–'}   ·   probs {self.probs_rate:.0f} Hz"
+            f"   ·   model {data.model_label(st.get('model')) if st.get('model') else '–'}   ·   probs {self.probs_rate:.0f} Hz"
             + ("" if live else "   ·   sensors not connected") + ("" if be.online else "   ·   engine offline"))
 
         if self.pending_model and be.online:

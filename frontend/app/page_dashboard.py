@@ -316,7 +316,9 @@ class DashboardPage(QtWidgets.QWidget):
             self.control.blockSignals(False)
         model = st.get("model")
         parts = ["sensors " + ("connected" if connected else "not connected")]
-        parts.append(f"model {model}" if model else ("no model yet: teach a gesture" if be.online else "engine offline"))
+        from . import data as _data
+        parts.append(f"model: {_data.model_label(model)}" if model else
+                     ("no model yet: teach a gesture" if be.online else "engine offline"))
         parts.append("recognising" if running else "paused")
         parts.append("controlling the computer" if app.actions_enabled and not app.killed else
                      ("STOPPED with F9" if app.killed else "not controlling the computer"))

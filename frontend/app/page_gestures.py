@@ -4,72 +4,43 @@ from __future__ import annotations
 from PyQt6 import QtCore, QtWidgets
 
 from .. import gestures as G
-from ..actions import ACTION_TYPES, BUTTONS, describe
+from ..actions import describe
 from . import data, sensor_picker
+from .action_editor import ActionEditor
 from .theme import C
 from .ui import FlowGrid, button, divider, label, tag
-
-ACTION_LABELS = {"none": "Nothing", "click": "Click", "double_click": "Double click", "scroll": "Scroll",
-                 "drag": "Drag (hold gesture)", "key": "Key combo", "pointer_hold": "Move mouse while held (hold gesture)",
-                 "mode_toggle": "Turn pointer on/off"}
-
 
 class ActionDialog(QtWidgets.QDialog):
     def __init__(self, parent, action, kind, title="What should it do?"):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setMinimumWidth(420)
-        a = dict(action or {"type": "click", "button": "left"})
         self.kind = kind
-        self.type = QtWidgets.QComboBox()
-        for t in ACTION_TYPES:
-            self.type.addItem(ACTION_LABELS.get(t, t), t)
-        self.type.setCurrentIndex(max(0, ACTION_TYPES.index(a.get("type", "none")) if a.get("type") in ACTION_TYPES else 0))
-        self.button = QtWidgets.QComboBox()
-        self.button.addItems(BUTTONS)
-        self.button.setCurrentText(a.get("button", "left"))
-        self.dy = QtWidgets.QSpinBox(minimum=-50, maximum=50, value=int(a.get("dy", -5)))
-        self.cont = QtWidgets.QCheckBox("keep scrolling while held")
-        self.cont.setChecked(bool(a.get("continuous")))
-        self.combo = QtWidgets.QLineEdit(a.get("combo", "ctrl+z"))
-        form = QtWidgets.QFormLayout(self)
-        form.addRow("Action", self.type)
-        self.rows = {"button": ("Mouse button", self.button), "dy": ("Scroll amount (− = down)", self.dy),
-                     "cont": ("", self.cont), "combo": ("Keys, e.g. ctrl+z", self.combo)}
-        for lab, w in self.rows.values():
-            form.addRow(lab, w)
-        self.hint = label("", 12, 400, C["warn"], wrap=True)
-        form.addRow(self.hint)
-        bb = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.StandardButton.Ok |
-                                        QtWidgets.QDialogButtonBox.StandardButton.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        form.addRow(bb)
-        self.type.currentIndexChanged.connect(self._vis)
-        self._vis()
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(22, 20, 22, 18)
+        lay.setSpacing(12)
+        lay.addWidget(label(title, 18, 600, wrap=True))
+        self.editor = ActionEditor(action)
+        lay.addWidget(self.editor)
+        self.warn = label("", 12, 400, C["warn"], wrap=True)
+        lay.addWidget(self.warn)
+        self.editor.needs_hold.connect(self._hold)
+        self._hold(self.editor.requires_hold())
+        row = QtWidgets.QHBoxLayout()
+        row.addStretch(1)
+        row.addWidget(button("Cancel", None, self.reject))
+        self.ok = button("Save", "Primary", self.accept)
+        row.addWidget(self.ok)
+        lay.addLayout(row)
 
-    def _vis(self, *_):
-        t = self.type.currentData()
-        show = {"click": ["button"], "double_click": ["button"], "drag": ["button"], "scroll": ["dy", "cont"],
-                "key": ["combo"]}.get(t, [])
-        for k, (_, w) in self.rows.items():
-            w.setVisible(k in show)
-            lb = self.layout().labelForField(w)
-            if lb:
-                lb.setVisible(k in show)
-        self.hint.setText("This action needs a HOLD gesture." if t in ("drag", "pointer_hold") and self.kind != "hold" else "")
+    def _hold(self, needs):
+        bad = needs and self.kind != "hold"
+        self.warn.setText("This gesture is an instant gesture; this action needs a hold gesture. Teach a new hold "
+                          "gesture for it." if bad else "")
+        self.ok.setEnabled(not bad)
 
     def action(self):
-        t = self.type.currentData()
-        if t in ("click", "double_click", "drag"):
-            return {"type": t, "button": self.button.currentText()}
-        if t == "scroll":
-            return {"type": t, "dx": 0, "dy": self.dy.value(), "continuous": self.cont.isChecked()}
-        if t == "key":
-            return {"type": t, "combo": self.combo.text().strip().lower()}
-        if t == "mode_toggle":
-            return {"type": t, "mode": "pointer"}
-        return {"type": t}
+        return self.editor.action(self.kind)
 
 
 class GesturesPage(QtWidgets.QWidget):
